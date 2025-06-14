@@ -196,6 +196,7 @@ class TelegripConfig:
     
     # Control flags
     enable_pybullet: bool = True
+    enable_pybullet_gui: bool = True
     enable_robot: bool = True
     enable_vr: bool = True
     enable_keyboard: bool = True

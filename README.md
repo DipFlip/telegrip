@@ -87,7 +87,8 @@ telegrip [OPTIONS]
 
 Options:
   --no-robot        Disable robot connection (visualization only)
-  --no-viz          Disable PyBullet visualization  
+  --no-sim          Disable PyBullet simulation and inverse kinematics
+  --no-viz          Disable PyBullet visualization (headless mode)
   --no-vr           Disable VR WebSocket server
   --no-keyboard     Disable keyboard input
   --log-level LEVEL Set logging level: debug, info, warning, error, critical (default: warning)
@@ -109,6 +110,11 @@ telegrip --no-robot
 **Keyboard Only** (no VR):
 ```bash
 telegrip --no-vr
+```
+
+**No Simulation** (no PyBullet sim or IK):
+```bash
+telegrip --no-sim
 ```
 
 **Headless** (no PyBullet GUI):

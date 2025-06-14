@@ -90,7 +90,7 @@ class ControlLoop:
             if self.config.enable_robot:
                 success = False
         
-        # Setup PyBullet visualizer
+        # Setup PyBullet simulation, IK and visualizer
         if self.config.enable_pybullet:
             try:
                 # Import PyBulletVisualizer on demand
@@ -98,7 +98,7 @@ class ControlLoop:
                 
                 self.visualizer = PyBulletVisualizer(
                     self.config.urdf_path, 
-                    use_gui=True,
+                    use_gui=self.config.enable_pybullet_gui,
                     log_level=self.config.log_level
                 )
                 if not self.visualizer.setup():

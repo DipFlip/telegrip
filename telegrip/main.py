@@ -712,7 +712,8 @@ def parse_arguments():
     
     # Control flags
     parser.add_argument("--no-robot", action="store_true", help="Disable robot connection (visualization only)")
-    parser.add_argument("--no-viz", action="store_true", help="Disable PyBullet visualization")
+    parser.add_argument("--no-sim", action="store_true", help="Disable PyBullet simulation and inverse kinematics")
+    parser.add_argument("--no-viz", action="store_true", help="Disable PyBullet visualization (headless mode)")
     parser.add_argument("--no-vr", action="store_true", help="Disable VR WebSocket server")
     parser.add_argument("--no-keyboard", action="store_true", help="Disable keyboard input")
     parser.add_argument("--no-https", action="store_true", help="Disable HTTPS server")
@@ -747,7 +748,8 @@ def create_config_from_args(args) -> TelegripConfig:
     
     # Apply command line overrides
     config.enable_robot = not args.no_robot
-    config.enable_pybullet = not args.no_viz
+    config.enable_pybullet = not args.no_sim
+    config.enable_pybullet_gui = config.enable_pybullet and not args.no_viz
     config.enable_vr = not args.no_vr
     config.enable_keyboard = not args.no_keyboard
     config.log_level = args.log_level
@@ -808,6 +810,7 @@ async def main():
         logger.info("Starting with configuration:")
         logger.info(f"  Robot: {'enabled' if config.enable_robot else 'disabled'}")
         logger.info(f"  PyBullet: {'enabled' if config.enable_pybullet else 'disabled'}")
+        logger.info(f"  Headless mode: {'enabled' if not config.enable_pybullet_gui and config.enable_pybullet else 'disabled'}")
         logger.info(f"  VR: {'enabled' if config.enable_vr else 'disabled'}")
         logger.info(f"  Keyboard: {'enabled' if config.enable_keyboard else 'disabled'}")
         logger.info(f"  HTTPS Port: {config.https_port}")
