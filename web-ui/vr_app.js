@@ -33,11 +33,20 @@ AFRAME.registerComponent('controller-updater', {
     this.leftZAxisRotation = 0;
     this.rightZAxisRotation = 0;
 
-    // --- Get hostname dynamically ---
-    const serverHostname = window.location.hostname;
-    const websocketPort = 8442; // Make sure this matches controller_server.py
-    const websocketUrl = `wss://${serverHostname}:${websocketPort}`;
-    console.log(`Attempting WebSocket connection to: ${websocketUrl}`);
+    // --- Smart WebSocket connection (try local first, then tunnel) ---
+    let websocketUrl;
+    
+    if (window.bestWebSocketUrl) {
+      // Use the best connection detected by interface.js
+      websocketUrl = window.bestWebSocketUrl;
+      console.log(`🚀 Using optimized WebSocket connection: ${websocketUrl}`);
+    } else {
+      // Fallback to current hostname method
+      const serverHostname = window.location.hostname;
+      const websocketPort = 8442;
+      websocketUrl = `wss://${serverHostname}:${websocketPort}`;
+      console.log(`🌐 Using fallback WebSocket connection: ${websocketUrl}`);
+    }
     // !!! IMPORTANT: Replace 'YOUR_LAPTOP_IP' with the actual IP address of your laptop !!!
     // const websocketUrl = 'ws://YOUR_LAPTOP_IP:8442';
     try {

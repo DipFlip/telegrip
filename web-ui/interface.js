@@ -3,6 +3,129 @@ let isKeyboardEnabled = false;
 let isRobotEngaged = false;
 let currentConfig = {};
 
+// Network connection management
+let bestServerUrl = null;
+let bestWebSocketUrl = null;
+let localIpDetected = null;
+
+// Detect local network and find best connection method
+async function detectBestConnection() {
+  console.log('🔍 Detecting best connection method...');
+  
+  // If we're already on a local IP, use it directly
+  const hostname = window.location.hostname;
+  if (hostname.match(/^192\.168\./) || hostname.match(/^10\./) || hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || hostname === 'localhost') {
+    console.log('✅ Already on local network');
+    bestServerUrl = window.location.origin;
+    bestWebSocketUrl = `wss://${hostname}:8442`;
+    return;
+  }
+  
+  // Try to detect local IP by making test connections
+  const commonLocalIPs = [
+    '192.168.1.1', '192.168.1.100', '192.168.1.101', '192.168.1.200',
+    '192.168.0.1', '192.168.0.100', '192.168.0.101', '192.168.0.200',
+    '192.168.7.1', '192.168.7.100', '192.168.7.200', '192.168.7.233',
+    '10.0.0.1', '10.0.0.100', '10.0.1.1', '10.0.1.100'
+  ];
+  
+  // Test each IP for telegrip server
+  for (const ip of commonLocalIPs) {
+    try {
+      console.log(`🔍 Testing connection to ${ip}:8443...`);
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+      
+      const response = await fetch(`https://${ip}:8443/api/status`, {
+        method: 'GET',
+        signal: controller.signal,
+        mode: 'cors',
+        cache: 'no-cache'
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        console.log(`✅ Found telegrip server at ${ip}:8443`);
+        localIpDetected = ip;
+        bestServerUrl = `https://${ip}:8443`;
+        bestWebSocketUrl = `wss://${ip}:8442`;
+        return;
+      }
+    } catch (error) {
+      // Connection failed, try next IP
+      console.log(`❌ Failed to connect to ${ip}: ${error.message}`);
+    }
+  }
+  
+  // No local connection found, use tunnel
+  console.log('🌐 No local connection found, using tunnel URL');
+  bestServerUrl = window.location.origin;
+  bestWebSocketUrl = `wss://${hostname}:8442`;
+}
+
+// Smart fetch that uses the best available connection
+async function smartFetch(endpoint, options = {}) {
+  if (!bestServerUrl) {
+    await detectBestConnection();
+  }
+  
+  const url = endpoint.startsWith('/') ? `${bestServerUrl}${endpoint}` : endpoint;
+  
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    // If local connection fails, try tunnel as fallback
+    if (bestServerUrl !== window.location.origin) {
+      console.log('🔄 Local connection failed, falling back to tunnel');
+      const fallbackUrl = endpoint.startsWith('/') ? `${window.location.origin}${endpoint}` : endpoint;
+      return await fetch(fallbackUrl, options);
+    }
+    throw error;
+  }
+}
+
+// Show connection status to user
+function showConnectionStatus(message, type) {
+  // Create status indicator if it doesn't exist
+  let statusIndicator = document.getElementById('connectionStatus');
+  if (!statusIndicator) {
+    statusIndicator = document.createElement('div');
+    statusIndicator.id = 'connectionStatus';
+    statusIndicator.style.cssText = `
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: bold;
+      z-index: 1000;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    `;
+    document.body.appendChild(statusIndicator);
+  }
+  
+  // Set message and style based on connection type
+  statusIndicator.textContent = message;
+  if (type === 'local') {
+    statusIndicator.style.backgroundColor = '#27ae60';
+    statusIndicator.style.color = 'white';
+  } else {
+    statusIndicator.style.backgroundColor = '#f39c12';
+    statusIndicator.style.color = 'white';
+  }
+  
+  // Hide after 5 seconds
+  setTimeout(() => {
+    if (statusIndicator) {
+      statusIndicator.style.opacity = '0.7';
+    }
+  }, 5000);
+}
+
 // Settings modal functions
 function openSettings() {
   const modal = document.getElementById('settingsModal');
@@ -16,7 +139,7 @@ function closeSettings() {
 }
 
 function loadConfiguration() {
-  fetch('/api/config')
+  smartFetch('/api/config')
     .then(response => response.json())
     .then(config => {
       currentConfig = config;
@@ -56,7 +179,7 @@ function restartSystem() {
   restartButton.disabled = true;
   restartButton.textContent = 'Restarting...';
 
-  fetch('/api/restart', {
+  smartFetch('/api/restart', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -123,7 +246,7 @@ function saveConfiguration() {
   saveButton.disabled = true;
   saveButton.textContent = 'Saving...';
 
-  fetch('/api/config', {
+  smartFetch('/api/config', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -150,7 +273,7 @@ function saveConfiguration() {
 
 // Update status indicators
 function updateStatus() {
-  fetch('/api/status')
+  smartFetch('/api/status')
     .then(response => response.json())
     .then(data => {
       // Update arm connection indicators (based on device files)
@@ -204,7 +327,7 @@ function updateEngagementUI() {
 function toggleRobotEngagement() {
   const action = isRobotEngaged ? 'disconnect' : 'connect';
   
-  fetch('/api/robot', {
+  smartFetch('/api/robot', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -230,7 +353,7 @@ function toggleRobotEngagement() {
 function toggleKeyboardControl() {
   const action = isKeyboardEnabled ? 'disable' : 'enable';
   
-  fetch('/api/keyboard', {
+  smartFetch('/api/keyboard', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -367,7 +490,7 @@ function sendKeyCommand(keyCode, action) {
   const key = keyMap[keyCode];
   if (!key) return;
 
-  fetch('/api/keypress', {
+  smartFetch('/api/keypress', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -383,8 +506,25 @@ function sendKeyCommand(keyCode, action) {
 }
 
 // Initialize
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   updateUIForDevice();
+  
+  // Detect best connection method
+  await detectBestConnection();
+  
+  // Expose best WebSocket URL globally for VR app
+  window.bestWebSocketUrl = bestWebSocketUrl;
+  
+  // Show connection status to user
+  if (localIpDetected) {
+    console.log(`🚀 Using local network connection: ${localIpDetected} (Ultra-low latency)`);
+    // Add visual indicator for local connection
+    showConnectionStatus(`🚀 Local Network (${localIpDetected})`, 'local');
+  } else {
+    console.log(`🌐 Using tunnel connection (Normal latency)`);
+    // Add visual indicator for tunnel connection
+    showConnectionStatus('🌐 Tunnel Connection', 'tunnel');
+  }
   
   // Start status monitoring
   updateStatus();

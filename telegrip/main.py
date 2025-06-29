@@ -456,6 +456,238 @@ class HTTPSServer:
             logger.info("HTTPS server stopped")
 
 
+class TunnelService:
+    """Service to create public tunnels using localhost.run or similar services."""
+    
+    def __init__(self, config: TelegripConfig):
+        self.config = config
+        self.tunnel_process = None
+        self.tunnel_url = None
+        self.is_running = False
+        self.http_proxy_server = None
+        self.http_proxy_thread = None
+    
+    def _start_http_proxy(self):
+        """Start HTTP proxy server that forwards to HTTPS server."""
+        import http.server
+        import urllib.request
+        import urllib.parse
+        
+        class ProxyHandler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, format, *args):
+                pass  # Disable logging
+            
+            def do_GET(self):
+                self._proxy_request()
+            
+            def do_POST(self):
+                self._proxy_request()
+            
+            def do_OPTIONS(self):
+                self._proxy_request()
+            
+            def _proxy_request(self):
+                try:
+                    # Build target URL (forward to HTTPS server)
+                    target_url = f"https://localhost:{self.server.https_port}{self.path}"
+                    
+                    # Create request
+                    request = urllib.request.Request(target_url)
+                    
+                    # Copy headers (except Host)
+                    for header, value in self.headers.items():
+                        if header.lower() not in ['host', 'connection']:
+                            request.add_header(header, value)
+                    
+                    # Handle POST data
+                    if self.command == 'POST':
+                        content_length = int(self.headers.get('Content-Length', 0))
+                        post_data = self.rfile.read(content_length)
+                        request.data = post_data
+                    
+                    # Make request (disable SSL verification for localhost)
+                    import ssl
+                    context = ssl.create_default_context()
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+                    
+                    response = urllib.request.urlopen(request, context=context)
+                    
+                    # Forward response
+                    self.send_response(response.getcode())
+                    
+                    # Copy response headers
+                    for header, value in response.headers.items():
+                        if header.lower() not in ['connection', 'transfer-encoding']:
+                            self.send_header(header, value)
+                    
+                    self.end_headers()
+                    
+                    # Copy response body
+                    self.wfile.write(response.read())
+                    
+                except Exception as e:
+                    logger.debug(f"Proxy error: {e}")
+                    self.send_error(502, "Bad Gateway")
+        
+        # Find available port for HTTP proxy
+        proxy_port = 8080
+        max_attempts = 10
+        for attempt in range(max_attempts):
+            try:
+                self.http_proxy_server = http.server.HTTPServer(('localhost', proxy_port), ProxyHandler)
+                self.http_proxy_server.https_port = self.config.https_port  # Pass HTTPS port to handler
+                break
+            except OSError:
+                proxy_port += 1
+                if attempt == max_attempts - 1:
+                    raise
+        
+        # Start proxy server in thread
+        self.http_proxy_thread = threading.Thread(
+            target=self.http_proxy_server.serve_forever, 
+            daemon=True
+        )
+        self.http_proxy_thread.start()
+        
+        logger.debug(f"HTTP proxy server started on port {proxy_port}")
+        return proxy_port
+
+    async def start(self):
+        """Start the tunnel service."""
+        if not self.config.enable_online:
+            return
+        
+        try:
+            logger.info("🌐 Creating public tunnel...")
+            
+            # Start HTTP proxy server first
+            proxy_port = self._start_http_proxy()
+            
+            # Command to create SSH tunnel to localhost.run (forward to HTTP proxy)
+            cmd = [
+                "ssh", 
+                "-R", f"80:localhost:{proxy_port}",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", "LogLevel=ERROR",
+                "nokey@localhost.run"
+            ]
+            
+            # Start the SSH process
+            self.tunnel_process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.PIPE
+            )
+            
+            # Wait for tunnel URL from stdout/stderr (with timeout)
+            try:
+                # Read output to get the tunnel URL
+                url_found = False
+                timeout_time = asyncio.get_event_loop().time() + 15.0
+                
+                async def read_stream(stream, stream_name):
+                    nonlocal url_found
+                    while not url_found and asyncio.get_event_loop().time() < timeout_time:
+                        try:
+                            line = await asyncio.wait_for(stream.readline(), timeout=1.0)
+                            if line:
+                                output = line.decode('utf-8').strip()
+                                if output:  # Only log non-empty lines
+                                    logger.debug(f"Tunnel {stream_name}: {output}")
+                                    
+                                    # Look for the tunnel URL in the output
+                                    import re
+                                    # Match various localhost.run URL formats
+                                    url_patterns = [
+                                        r'https://[a-zA-Z0-9\-]+\.localhost\.run',
+                                        r'http://[a-zA-Z0-9\-]+\.localhost\.run',
+                                        r'https://[a-zA-Z0-9\-]+\.lhr\.life',
+                                        r'http://[a-zA-Z0-9\-]+\.lhr\.life',
+                                        r'Connect to (https?://[a-zA-Z0-9\-]+\.(?:localhost\.run|lhr\.life))',
+                                        r'tunneled.*?(https?://[a-zA-Z0-9\-]+\.(?:localhost\.run|lhr\.life))'
+                                    ]
+                                    
+                                    for pattern in url_patterns:
+                                        match = re.search(pattern, output, re.IGNORECASE)
+                                        if match:
+                                            if match.groups():
+                                                self.tunnel_url = match.group(1)
+                                            else:
+                                                self.tunnel_url = match.group(0)
+                                            
+                                            # Ensure HTTPS
+                                            if self.tunnel_url.startswith('http://'):
+                                                self.tunnel_url = self.tunnel_url.replace('http://', 'https://', 1)
+                                            
+                                            self.is_running = True
+                                            url_found = True
+                                            logger.info(f"🌐 Tunnel created successfully: {self.tunnel_url}")
+                                            return
+                            else:
+                                # No more output, wait briefly
+                                await asyncio.sleep(0.1)
+                        except asyncio.TimeoutError:
+                            # No output yet, continue waiting
+                            continue
+                        except Exception as e:
+                            logger.debug(f"Error reading {stream_name}: {e}")
+                            break
+                
+                # Read from both stdout and stderr concurrently
+                await asyncio.gather(
+                    read_stream(self.tunnel_process.stdout, "stdout"),
+                    read_stream(self.tunnel_process.stderr, "stderr"),
+                    return_exceptions=True
+                )
+                
+                if not url_found:
+                    if self.tunnel_process.returncode is None:
+                        logger.warning("Could not get tunnel URL within timeout, but process is still running")
+                        # Process is running - assume tunnel might be working, we just can't parse the URL
+                        # Try a common localhost.run format as fallback
+                        logger.info("🌐 Tunnel process running - check your SSH client for the actual URL")
+                    else:
+                        logger.warning(f"Tunnel process exited with code: {self.tunnel_process.returncode}")
+                    
+            except Exception as e:
+                logger.warning(f"Error reading tunnel URL: {e}")
+                if self.tunnel_process:
+                    self.tunnel_process.terminate()
+                    
+        except FileNotFoundError:
+            logger.error("SSH not found. Please install SSH client to use --online option.")
+            logger.error("On Ubuntu/Debian: sudo apt-get install openssh-client")
+            logger.error("On Windows: Enable OpenSSH client in Windows Features")
+        except Exception as e:
+            logger.error(f"Failed to create tunnel: {e}")
+    
+    async def stop(self):
+        """Stop the tunnel service."""
+        self.is_running = False
+        
+        # Stop HTTP proxy server
+        if self.http_proxy_server:
+            self.http_proxy_server.shutdown()
+            if self.http_proxy_thread:
+                self.http_proxy_thread.join(timeout=2)
+        
+        # Stop SSH tunnel
+        if self.tunnel_process and self.tunnel_process.returncode is None:
+            self.tunnel_process.terminate()
+            try:
+                await asyncio.wait_for(self.tunnel_process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                self.tunnel_process.kill()
+            logger.info("🌐 Tunnel stopped")
+    
+    def get_public_url(self) -> Optional[str]:
+        """Get the public tunnel URL."""
+        return self.tunnel_url if self.is_running else None
+
+
 class TelegripSystem:
     """Main teleoperation system that coordinates all components."""
     
@@ -468,6 +700,7 @@ class TelegripSystem:
         
         # Components
         self.https_server = HTTPSServer(config)
+        self.tunnel_service = TunnelService(config)
         self.vr_server = VRWebSocketServer(self.command_queue, config)
         self.keyboard_listener = KeyboardListener(self.command_queue, config)
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
@@ -571,7 +804,7 @@ class TelegripSystem:
             await self.control_loop.stop()
             await self.keyboard_listener.stop()
             await self.vr_server.stop()
-            # Don't stop HTTPS server - keep it running for the UI
+            # Don't stop tunnel service or HTTPS server - keep them running for the UI
             
             # Wait a moment for cleanup
             await asyncio.sleep(1)
@@ -589,6 +822,7 @@ class TelegripSystem:
             self.control_commands_queue = queue.Queue(maxsize=10)
             
             # Create new components
+            # Note: Don't recreate tunnel service - keep the existing one running
             self.vr_server = VRWebSocketServer(self.command_queue, self.config)
             self.keyboard_listener = KeyboardListener(self.command_queue, self.config)
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
@@ -635,6 +869,21 @@ class TelegripSystem:
             
             # Start HTTPS server
             await self.https_server.start()
+            
+            # Start tunnel service (if enabled)
+            await self.tunnel_service.start()
+            
+            # Show public URL if tunnel was created successfully
+            if self.tunnel_service.get_public_url():
+                public_url = self.tunnel_service.get_public_url()
+                current_log_level = getattr(logging, self.config.log_level.upper())
+                if current_log_level <= logging.INFO:
+                    logger.info(f"Public tunnel created: {public_url}")
+                else:
+                    # Show the public URL prominently in quiet mode
+                    print(f"🌐 Public URL (use this on VR headset - no warnings!):")
+                    print(f"   {public_url}")
+                    print()
             
             # Start VR WebSocket server
             await self.vr_server.start()
@@ -713,6 +962,7 @@ class TelegripSystem:
         await self.control_loop.stop()
         await self.keyboard_listener.stop()
         await self.vr_server.stop()
+        await self.tunnel_service.stop()
         await self.https_server.stop()
         
         logger.info("Teleoperation system shutdown complete")
@@ -736,6 +986,7 @@ def parse_arguments():
     parser.add_argument("--no-keyboard", action="store_true", help="Disable keyboard input")
     parser.add_argument("--no-https", action="store_true", help="Disable HTTPS server")
     parser.add_argument("--autoconnect", action="store_true", help="Automatically connect to robot motors on startup")
+    parser.add_argument("--online", action="store_true", help="Create public tunnel with real HTTPS certificate (no browser warnings)")
     parser.add_argument("--log-level", default="warning", 
                        choices=["debug", "info", "warning", "error", "critical"],
                        help="Set logging level (default: warning)")
@@ -772,6 +1023,7 @@ def create_config_from_args(args) -> TelegripConfig:
     config.enable_vr = not args.no_vr
     config.enable_keyboard = not args.no_keyboard
     config.autoconnect = args.autoconnect
+    config.enable_online = args.online
     config.log_level = args.log_level
     
     config.https_port = args.https_port
@@ -837,13 +1089,19 @@ async def main():
         logger.info(f"  HTTPS Port: {config.https_port}")
         logger.info(f"  WebSocket Port: {config.websocket_port}")
         logger.info(f"  Robot Ports: {config.follower_ports}")
+        logger.info(f"  Online tunnel: {'enabled' if config.enable_online else 'disabled'}")
     else:
         # Show clean startup message with HTTPS URL
         host_display = get_local_ip() if config.host_ip == "0.0.0.0" else config.host_ip
         print(f"🤖 telegrip starting...")
-        print(f"📱 Open the UI in your browser on:")
-        print(f"   https://{host_display}:{config.https_port}")
-        print(f"📱 Then go to the same address on your VR headset browser")
+        if config.enable_online:
+            print(f"📱 Local URL (may show browser warnings):")
+            print(f"   https://{host_display}:{config.https_port}")
+            print(f"🌐 Creating public URL (no warnings)...")
+        else:
+            print(f"📱 Open the UI in your browser on:")
+            print(f"   https://{host_display}:{config.https_port}")
+            print(f"📱 Then go to the same address on your VR headset browser")
         print(f"💡 Use --log-level info to see detailed output")
         print()
     

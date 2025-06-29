@@ -93,6 +93,7 @@ Options:
   --no-vr           Disable VR WebSocket server
   --no-keyboard     Disable keyboard input
   --autoconnect     Automatically connect to robot motors on startup
+  --online          Create public tunnel with real HTTPS certificate (no browser warnings)
   --log-level LEVEL Set logging level: debug, info, warning, error, critical (default: warning)
   --https-port PORT HTTPS server port (default: 8443)
   --ws-port PORT    WebSocket server port (default: 8442)
@@ -127,6 +128,24 @@ telegrip --no-viz
 **Auto-connect to Robot** (skip manual connection step):
 ```bash
 telegrip --autoconnect
+```
+
+**Public Access** (no browser warnings on VR headsets):
+```bash
+telegrip --online
+```
+
+This creates a secure tunnel through localhost.run that gives you a public HTTPS URL with a valid certificate. Perfect for VR headsets that would otherwise show browser security warnings.
+
+**Example with --online:**
+```bash
+$ telegrip --online
+🤖 telegrip starting...
+📱 Local URL (may show browser warnings):
+   https://192.168.1.100:8443
+🌐 Creating public URL (no warnings)...
+🌐 Public URL (use this on VR headset - no warnings!):
+   https://abc123-def456.localhost.run
 ```
 
 ## Control Methods
