@@ -143,13 +143,17 @@ function showConnectionStatus(message, type) {
 // Settings modal functions
 function openSettings() {
   const modal = document.getElementById('settingsModal');
-  modal.classList.add('show');
-  loadConfiguration();
+  if (modal) {
+    modal.classList.add('show');
+    loadConfiguration();
+  }
 }
 
 function closeSettings() {
   const modal = document.getElementById('settingsModal');
-  modal.classList.remove('show');
+  if (modal) {
+    modal.classList.remove('show');
+  }
 }
 
 function loadConfiguration() {
@@ -166,22 +170,26 @@ function loadConfiguration() {
 }
 
 function populateSettingsForm(config) {
-  // Robot arms
-  document.getElementById('leftArmName').value = config.robot?.left_arm?.name || '';
-  document.getElementById('leftArmPort').value = config.robot?.left_arm?.port || '';
-  document.getElementById('rightArmName').value = config.robot?.right_arm?.name || '';
-  document.getElementById('rightArmPort').value = config.robot?.right_arm?.port || '';
-  
-  // Network settings
-  document.getElementById('httpsPort').value = config.network?.https_port || '';
-  document.getElementById('websocketPort').value = config.network?.websocket_port || '';
-  document.getElementById('hostIp').value = config.network?.host_ip || '';
-  
-  // Control parameters
-  document.getElementById('vrScale').value = config.robot?.vr_to_robot_scale || '';
-  document.getElementById('sendInterval').value = (config.robot?.send_interval * 1000) || ''; // Convert to ms
-  document.getElementById('posStep').value = config.control?.keyboard?.pos_step || '';
-  document.getElementById('angleStep').value = config.control?.keyboard?.angle_step || '';
+  // Only populate if form elements exist (they don't exist on VR page)
+  const leftArmName = document.getElementById('leftArmName');
+  if (leftArmName) {
+    // Robot arms
+    leftArmName.value = config.robot?.left_arm?.name || '';
+    document.getElementById('leftArmPort').value = config.robot?.left_arm?.port || '';
+    document.getElementById('rightArmName').value = config.robot?.right_arm?.name || '';
+    document.getElementById('rightArmPort').value = config.robot?.right_arm?.port || '';
+    
+    // Network settings
+    document.getElementById('httpsPort').value = config.network?.https_port || '';
+    document.getElementById('websocketPort').value = config.network?.websocket_port || '';
+    document.getElementById('hostIp').value = config.network?.host_ip || '';
+    
+    // Control parameters
+    document.getElementById('vrScale').value = config.robot?.vr_to_robot_scale || '';
+    document.getElementById('sendInterval').value = (config.robot?.send_interval * 1000) || ''; // Convert to ms
+    document.getElementById('posStep').value = config.control?.keyboard?.pos_step || '';
+    document.getElementById('angleStep').value = config.control?.keyboard?.angle_step || '';
+  }
 }
 
 function restartSystem() {
@@ -290,14 +298,14 @@ function updateStatus() {
   smartFetch('/api/status')
     .then(response => response.json())
     .then(data => {
-      // Update arm connection indicators (based on device files)
+      // Update arm connection indicators (based on device files) - only if elements exist
       const leftIndicator = document.getElementById('leftArmStatus');
       const rightIndicator = document.getElementById('rightArmStatus');
       const vrIndicator = document.getElementById('vrStatus');
       
-      leftIndicator.className = 'status-indicator' + (data.left_arm_connected ? ' connected' : '');
-      rightIndicator.className = 'status-indicator' + (data.right_arm_connected ? ' connected' : '');
-      vrIndicator.className = 'status-indicator' + (data.vrConnected ? ' connected' : '');
+      if (leftIndicator) leftIndicator.className = 'status-indicator' + (data.left_arm_connected ? ' connected' : '');
+      if (rightIndicator) rightIndicator.className = 'status-indicator' + (data.right_arm_connected ? ' connected' : '');
+      if (vrIndicator) vrIndicator.className = 'status-indicator' + (data.vrConnected ? ' connected' : '');
       
       // Update keyboard control status
       isKeyboardEnabled = data.keyboardEnabled;
@@ -325,16 +333,19 @@ function updateEngagementUI() {
   const engageBtnText = document.getElementById('engageBtnText');
   const engagementStatusText = document.getElementById('engagementStatusText');
   
-  if (isRobotEngaged) {
-    engageBtn.classList.add('disconnect');
-    engageBtnText.textContent = '🔌 Disconnect Robot';
-    engagementStatusText.textContent = 'Motors Engaged';
-    engagementStatusText.style.color = '#FFFFFF';
-  } else {
-    engageBtn.classList.remove('disconnect');
-    engageBtnText.textContent = '🔌 Connect Robot';
-    engagementStatusText.textContent = 'Motors Disengaged';
-    engagementStatusText.style.color = '#FFFFFF';
+  // Only update UI if elements exist (they don't exist on VR page)
+  if (engageBtn && engageBtnText && engagementStatusText) {
+    if (isRobotEngaged) {
+      engageBtn.classList.add('disconnect');
+      engageBtnText.textContent = '🔌 Disconnect Robot';
+      engagementStatusText.textContent = 'Motors Engaged';
+      engagementStatusText.style.color = '#FFFFFF';
+    } else {
+      engageBtn.classList.remove('disconnect');
+      engageBtnText.textContent = '🔌 Connect Robot';
+      engagementStatusText.textContent = 'Motors Disengaged';
+      engagementStatusText.style.color = '#FFFFFF';
+    }
   }
 }
 
@@ -480,18 +491,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Settings form handler
-  document.getElementById('settingsForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    saveConfiguration();
-  });
+  // Settings form handler (only if elements exist)
+  const settingsForm = document.getElementById('settingsForm');
+  if (settingsForm) {
+    settingsForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      saveConfiguration();
+    });
+  }
 
-  // Close modal when clicking outside
-  document.getElementById('settingsModal').addEventListener('click', (e) => {
-    if (e.target.id === 'settingsModal') {
-      closeSettings();
-    }
-  });
+  // Close modal when clicking outside (only if element exists)
+  const settingsModal = document.getElementById('settingsModal');
+  if (settingsModal) {
+    settingsModal.addEventListener('click', (e) => {
+      if (e.target.id === 'settingsModal') {
+        closeSettings();
+      }
+    });
+  }
 });
 
 // Handle window resize
