@@ -116,6 +116,18 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
         if not (self.path == '/' or self.path == '/index.html'):
             return False
         
+        # Don't redirect if request is already coming through the tunnel proxy
+        # Check for proxy headers or local origin
+        x_forwarded_for = self.headers.get('X-Forwarded-For')
+        x_real_ip = self.headers.get('X-Real-IP')
+        x_tunneled = self.headers.get('X-Tunneled-Request')
+        remote_addr = self.client_address[0] if self.client_address else None
+        
+        # If request is coming from localhost/127.0.0.1, it's likely from our proxy
+        # Or if it has the tunnel proxy header
+        if remote_addr in ['127.0.0.1', '::1', 'localhost'] or x_tunneled == 'true':
+            return False
+        
         # Check if tunnel is available
         tunnel_url = None
         if hasattr(self.server, 'api_handler') and self.server.api_handler:
@@ -609,55 +621,95 @@ class TunnelService:
                 self._proxy_request()
             
             def _proxy_request(self):
-                try:
-                    # Build target URL (HTTP in default mode, HTTPS in offline mode)
-                    if self.server.offline_mode:
-                        target_url = f"https://localhost:{self.server.https_port}{self.path}"
-                    else:
-                        target_url = f"http://localhost:{self.server.https_port}{self.path}"
-                    
-                    # Create request
-                    request = urllib.request.Request(target_url)
-                    
-                    # Copy headers (except Host)
-                    for header, value in self.headers.items():
-                        if header.lower() not in ['host', 'connection']:
-                            request.add_header(header, value)
-                    
-                    # Handle POST data
-                    if self.command == 'POST':
+                import time
+                max_retries = 3
+                retry_delay = 0.1  # 100ms
+                
+                # Read POST data once at the beginning to avoid issues with retries
+                post_data = None
+                if self.command == 'POST':
+                    try:
                         content_length = int(self.headers.get('Content-Length', 0))
-                        post_data = self.rfile.read(content_length)
-                        request.data = post_data
-                    
-                    # Make request with SSL context only for HTTPS
-                    if self.server.offline_mode:
-                        # HTTPS with self-signed cert - disable verification
-                        import ssl
-                        context = ssl.create_default_context()
-                        context.check_hostname = False
-                        context.verify_mode = ssl.CERT_NONE
-                        response = urllib.request.urlopen(request, context=context)
-                    else:
-                        # HTTP - no SSL context needed
-                        response = urllib.request.urlopen(request)
-                    
-                    # Forward response
-                    self.send_response(response.getcode())
-                    
-                    # Copy response headers
-                    for header, value in response.headers.items():
-                        if header.lower() not in ['connection', 'transfer-encoding']:
-                            self.send_header(header, value)
-                    
-                    self.end_headers()
-                    
-                    # Copy response body
-                    self.wfile.write(response.read())
-                    
-                except Exception as e:
-                    logger.debug(f"Proxy error: {e}")
-                    self.send_error(502, "Bad Gateway")
+                        if content_length > 0:
+                            post_data = self.rfile.read(content_length)
+                    except Exception as e:
+                        logger.debug(f"Error reading POST data: {e}")
+                        self.send_error(400, "Bad Request")
+                        return
+                
+                for attempt in range(max_retries):
+                    try:
+                        # Build target URL using the correct backend host (fix for 502 errors)
+                        # Use 127.0.0.1 instead of localhost for better compatibility
+                        backend_host = "127.0.0.1"
+                        if self.server.offline_mode:
+                            target_url = f"https://{backend_host}:{self.server.https_port}{self.path}"
+                        else:
+                            target_url = f"http://{backend_host}:{self.server.https_port}{self.path}"
+                        
+                        # Log the proxy attempt for debugging
+                        if attempt == 0:
+                            logger.debug(f"Proxy request: {self.command} {self.path} -> {target_url}")
+                        
+                        # Create request
+                        request = urllib.request.Request(target_url)
+                        
+                        # Add tunnel proxy identification header
+                        request.add_header('X-Tunneled-Request', 'true')
+                        
+                        # Copy headers (except Host)
+                        for header, value in self.headers.items():
+                            if header.lower() not in ['host', 'connection']:
+                                request.add_header(header, value)
+                        
+                        # Add POST data if available
+                        if post_data:
+                            request.data = post_data
+                        
+                        # Make request with SSL context only for HTTPS
+                        if self.server.offline_mode:
+                            # HTTPS with self-signed cert - disable verification
+                            import ssl
+                            context = ssl.create_default_context()
+                            context.check_hostname = False
+                            context.verify_mode = ssl.CERT_NONE
+                            response = urllib.request.urlopen(request, context=context, timeout=10)
+                        else:
+                            # HTTP - no SSL context needed
+                            response = urllib.request.urlopen(request, timeout=10)
+                        
+                        # Forward response
+                        self.send_response(response.getcode())
+                        
+                        # Copy response headers
+                        for header, value in response.headers.items():
+                            if header.lower() not in ['connection', 'transfer-encoding']:
+                                self.send_header(header, value)
+                        
+                        self.end_headers()
+                        
+                        # Copy response body
+                        self.wfile.write(response.read())
+                        return  # Success - exit retry loop
+                        
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            # Not the last attempt - wait and retry
+                            logger.debug(f"Proxy attempt {attempt + 1} failed, retrying: {e}")
+                            time.sleep(retry_delay)
+                            continue
+                        else:
+                            # Last attempt failed - log error and return 502
+                            import traceback
+                            error_details = f"Error connecting to backend server at {target_url}: {e}"
+                            logger.error(f"Proxy error after {max_retries} attempts: {error_details}")
+                            logger.debug(f"Full traceback: {traceback.format_exc()}")
+                            
+                            # Send appropriate error response
+                            try:
+                                self.send_error(502, f"Bad Gateway - {error_details}")
+                            except:
+                                pass  # Client may have disconnected
         
         # Find available port for HTTP proxy
         proxy_port = 8080
@@ -690,6 +742,9 @@ class TunnelService:
         
         try:
             logger.info("🌐 Creating public tunnel...")
+            
+            # Brief delay to ensure backend server is fully ready
+            await asyncio.sleep(0.5)
             
             # Start HTTP proxy server first
             proxy_port = self._start_http_proxy()
