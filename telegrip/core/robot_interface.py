@@ -345,19 +345,27 @@ class RobotInterface:
             return True
         
         try:
-            # Return to safe position before disengaging
+            # Try to return to safe position while still engaged
+            logger.info("⏪ Returning to safe position before disengaging...")
             self.return_to_initial_position()
-            
-            # Disable torque
-            self.disable_torque()
-            
-            self.is_engaged = False
-            logger.info("🔌 Robot motors DISENGAGED - commands stopped")
-            return True
+            logger.info("✅ Robot returned to safe position")
             
         except Exception as e:
-            logger.error(f"Error disengaging robot: {e}")
-            return False
+            logger.warning(f"Warning: Could not return to safe position: {e}")
+            logger.info("🔌 Proceeding with disengagement anyway...")
+        
+        # Always disengage after attempting to return to safe position
+        self.is_engaged = False
+        logger.info("🔌 Robot motors DISENGAGED - commands stopped")
+        
+        try:
+            # Disable torque
+            self.disable_torque()
+            logger.info("✅ Torque disabled")
+        except Exception as e:
+            logger.warning(f"Warning: Could not disable torque: {e}")
+        
+        return True
     
     def send_command(self) -> bool:
         """Send current joint angles to robot using dictionary format."""
@@ -505,14 +513,40 @@ class RobotInterface:
             return
         
         try:
-            logger.info("Disabling torque on follower motors...")
+            logger.info("Disabling torque on all motors...")
             
-            # The new SO100Follower automatically handles torque disable on disconnect
-            # We don't need to manually disable torque as it's handled by the robot class
-            logger.info("Torque will be disabled automatically on disconnect")
+            # Disable torque on left arm using the proper FeetechMotorsBus API
+            if self.left_robot and self.left_arm_connected:
+                try:
+                    # Use the robot's bus disable_torque method directly
+                    self.left_robot.bus.disable_torque()
+                    logger.info("✅ Left arm torque disabled")
+                except Exception as e:
+                    logger.warning(f"Could not disable torque on left arm: {e}")
+            
+            # Disable torque on right arm using the proper FeetechMotorsBus API
+            if self.right_robot and self.right_arm_connected:
+                try:
+                    # Use the robot's bus disable_torque method directly
+                    self.right_robot.bus.disable_torque()
+                    logger.info("✅ Right arm torque disabled")
+                except Exception as e:
+                    logger.warning(f"Could not disable torque on right arm: {e}")
+                    
+            logger.info("✅ Torque disabled on all connected motors")
                     
         except Exception as e:
             logger.error(f"Error disabling torque: {e}")
+            # If all else fails, try to disconnect which should disable torque
+            logger.info("Attempting disconnect as fallback to disable torque...")
+            try:
+                if self.left_robot:
+                    self.left_robot.disconnect()
+                if self.right_robot:
+                    self.right_robot.disconnect()
+                logger.info("✅ Robot disconnected as fallback torque disable")
+            except Exception as disconnect_error:
+                logger.error(f"Even disconnect failed: {disconnect_error}")
     
     def disconnect(self):
         """Disconnect from robot hardware."""

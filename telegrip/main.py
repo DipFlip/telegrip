@@ -923,7 +923,6 @@ class TelegripSystem:
             # Start HTTPS server
             await self.https_server.start()
             
-            # Note: Removed HTTP redirect server - now serving directly on main port
             
             # Start tunnel service (if enabled)
             await self.tunnel_service.start()
