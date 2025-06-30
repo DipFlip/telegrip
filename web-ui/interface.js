@@ -3,6 +3,14 @@ let isKeyboardEnabled = false;
 let isRobotEngaged = false;
 let currentConfig = {};
 
+// Prevent F key from triggering full-screen mode
+document.addEventListener('keydown', function(event) {
+  if (event.key === 'F' || event.key === 'f') {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+});
+
 // Network connection management
 let bestServerUrl = null;
 let bestWebSocketUrl = null;
