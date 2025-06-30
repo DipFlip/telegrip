@@ -643,16 +643,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
             console.log('Controller DISCONNECTED:', evt.detail.name, evt.detail.component.data.hand);
         });
 
-        // Add controller-updater component when scene is loaded (A-Frame manages session)
-        if (scene.hasLoaded) {
-            scene.setAttribute('controller-updater', '');
-            console.log("controller-updater component added immediately.");
-        } else {
-            scene.addEventListener('loaded', () => {
-                scene.setAttribute('controller-updater', '');
-                console.log("controller-updater component added after scene loaded.");
-            });
-        }
+        // Controller-updater component is already added in the HTML, no need to add it here
     } else {
         console.error('A-Frame scene not found!');
     }
