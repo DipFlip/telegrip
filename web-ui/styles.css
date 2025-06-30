@@ -252,8 +252,8 @@ body {
   margin-bottom: 30px;
 }
 
-/* VR Instructions Section */
-.vr-instructions-section {
+/* VR Access Section */
+.vr-access-section {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   padding: 20px;
@@ -262,43 +262,104 @@ body {
   margin: 20px 0;
 }
 
-.vr-instructions-section h2 {
+.vr-access-section h2 {
   color: white;
   margin: 0 0 15px 0;
   font-size: 1.3em;
   font-weight: 600;
 }
 
-.instructions-content {
+.vr-access-content {
   display: flex;
-  gap: 20px;
-  align-items: flex-start;
+  gap: 30px;
+  align-items: center;
 }
 
-.instructions-image {
+.vr-access-info {
   flex: 1;
-  min-width: 200px;
 }
 
-.instructions-text {
-  flex: 1;
+.vr-instructions-image {
+  margin-bottom: 20px;
+}
+
+.vr-features {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.instruction-item {
+.vr-feature {
   padding: 10px;
   background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  border-radius: 6px;
+  font-size: 14px;
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-.instruction-item strong {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 0.95em;
+.vr-access-controls {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 15px;
+}
+
+.vr-enter-btn {
+  background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  border: none;
+  padding: 20px 30px;
+  border-radius: 15px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  box-shadow: 0 8px 20px rgba(255, 107, 107, 0.3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 180px;
+}
+
+.vr-enter-btn:hover:not(:disabled) {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 25px rgba(255, 107, 107, 0.4);
+}
+
+.vr-enter-btn:active {
+  transform: translateY(-1px);
+}
+
+.vr-enter-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.vr-enter-icon {
+  font-size: 24px;
+}
+
+.vr-enter-text {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.vr-enter-subtitle {
+  font-size: 12px;
+  opacity: 0.8;
+  font-weight: 400;
+}
+
+.vr-status-text {
+  text-align: center;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.8);
+  max-width: 250px;
+  line-height: 1.4;
 }
 
 /* Responsive design */
@@ -331,12 +392,17 @@ body {
     grid-template-columns: 1fr;
   }
   
-  .instructions-content {
+  .vr-access-content {
     flex-direction: column;
+    gap: 20px;
   }
   
-  .instructions-image {
+  .vr-access-controls {
     order: -1;
+  }
+  
+  .vr-instructions-image {
+    order: 1;
   }
   
   .form-row {

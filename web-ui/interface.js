@@ -405,31 +405,30 @@ function updateUIForDevice() {
   const desktopInterface = document.getElementById('desktopInterface');
   const vrContent = document.getElementById('vrContent');
   
-  if (isVRMode()) {
-    desktopInterface.style.display = 'none';
-    vrContent.style.display = 'none';
-  } else {
-    // Check if this is a VR-capable device
-    if (navigator.xr) {
-      navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
-        if (supported) {
-          // VR-capable device - show VR interface
-          desktopInterface.style.display = 'none';
-          vrContent.style.display = 'block';
-        } else {
-          // Not VR-capable - show desktop interface
-          desktopInterface.style.display = 'block';
-          vrContent.style.display = 'none';
-        }
-      }).catch(() => {
-        // Fallback to desktop interface if XR check fails
-        desktopInterface.style.display = 'block';
-        vrContent.style.display = 'none';
-      });
-    } else {
-      // No XR support - show desktop interface
-      desktopInterface.style.display = 'block';
+  // Always show desktop interface on main page (VR content is now on separate page)
+  if (desktopInterface) {
+    desktopInterface.style.display = 'block';
+  }
+  
+  // Only handle vrContent if it exists (it's only on the VR page now)
+  if (vrContent) {
+    if (isVRMode()) {
       vrContent.style.display = 'none';
+    } else {
+      // Check if this is a VR-capable device
+      if (navigator.xr) {
+        navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
+          if (supported) {
+            vrContent.style.display = 'block';
+          } else {
+            vrContent.style.display = 'none';
+          }
+        }).catch(() => {
+          vrContent.style.display = 'none';
+        });
+      } else {
+        vrContent.style.display = 'none';
+      }
     }
   }
 }

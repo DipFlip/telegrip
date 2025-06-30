@@ -6,8 +6,6 @@
     <meta name="description" content="telegrip - Robot Arm Teleoperation">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <script src="https://aframe.io/releases/1.7.1/aframe.min.js"></script>
-    <script src="vr_app.js" defer></script>
     <script src="interface.js" defer></script>
     <link rel="stylesheet" href="styles.css">
   </head>
@@ -138,25 +136,34 @@
           </div>
         </div>
 
-        <!-- VR Instructions Section -->
-        <div class="vr-instructions-section">
-          <h2>🥽 VR Controller Instructions</h2>
-          <div class="instructions-content">
-            <div class="instructions-image">
-              <img src="media/telegrip_instructions.jpg" alt="VR Controller Instructions" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+        <!-- VR Access Section -->
+        <div class="vr-access-section">
+          <h2>🥽 VR Teleoperation</h2>
+          <div class="vr-access-content">
+            <div class="vr-access-info">
+              <div class="vr-instructions-image">
+                <img src="media/telegrip_instructions.jpg" alt="VR Controller Instructions" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+              </div>
+              <div class="vr-features">
+                <div class="vr-feature">
+                  <span><strong>Grip Button:</strong> Hold to move robot arm with your controller</span>
+                </div>
+                <div class="vr-feature">
+                  <span><strong>Trigger Button:</strong> Hold to close gripper, release to open</span>
+                </div>
+                <div class="vr-feature">
+                  <span><strong>Controller Orientation:</strong> Robot wrist follows your controller rotation</span>
+                </div>
+              </div>
             </div>
-            <div class="instructions-text">
-              <div class="instruction-item">
-                <strong>Setup:</strong> Go to <span id="vrServerUrl" style="font-family: monospace; background: rgba(255,255,255,0.2); padding: 2px 6px; border-radius: 4px;">https://loading...</span> in your headset's browser and click "Start"
-              </div>
-              <div class="instruction-item">
-                <strong>Grip Button:</strong> The robot arm's gripper tip will track your relative controller movements as long as you hold the grip button
-              </div>
-              <div class="instruction-item">
-                <strong>Controller Orientation:</strong> Roll and pitch of your controller will be matched on the wrist joint of the robot arm
-              </div>
-              <div class="instruction-item">
-                <strong>Trigger Button:</strong> The gripper stays closed while you hold the trigger button. Release the trigger button to open the gripper.
+            <div class="vr-access-controls">
+              <button class="vr-enter-btn" id="vrEnterBtn" onclick="enterVR()">
+                <span class="vr-enter-icon">🥽</span>
+                <span class="vr-enter-text">Enter VR</span>
+                <span class="vr-enter-subtitle">Click from within the VR headset</span>
+              </button>
+              <div class="vr-status-text" id="vrStatusText">
+                <span id="vrTunnelStatus">⏳ Preparing VR environment...</span>
               </div>
             </div>
           </div>
@@ -248,33 +255,67 @@
       </div>
     </div>
 
-    <!-- VR-only content -->
-    <div class="vr-content" id="vrContent">
-      <div class="vr-title">VR Teleoperation</div>
-    </div>
-
-    <!-- A-Frame VR Scene -->
-    <a-scene vr-mode-ui="enabled: true;">
-      <!-- Passthrough setup -->
-      <a-entity webxr-passthrough="referenceSpaceType: local-floor"></a-entity>
-
-      <!-- Controllers -->
-      <a-entity id="leftHand" oculus-touch-controls="hand: left">
-        <a-text id="leftHandInfo" value="Pos: ...\nRot: ..." position="0 0.04 -0.05" rotation="0 0 0" scale="0.05 0.05 0.05" color="white" align="center"></a-text>
-      </a-entity>
-      <a-entity id="rightHand" oculus-touch-controls="hand: right">
-        <a-text id="rightHandInfo" value="Pos: ...\nRot: ..." position="0 0.04 -0.05" rotation="0 0 0" scale="0.05 0.05 0.05" color="white" align="center"></a-text>
-      </a-entity>
-    </a-scene>
-
     <script>
-      // Update VR server URL dynamically
-      document.addEventListener('DOMContentLoaded', function() {
-        const vrUrlElement = document.getElementById('vrServerUrl');
-        if (vrUrlElement) {
-          const currentUrl = window.location.origin;
-          vrUrlElement.textContent = currentUrl + '/';
+      // Enter VR function
+      async function enterVR() {
+        const button = document.getElementById('vrEnterBtn');
+        const statusText = document.getElementById('vrTunnelStatus');
+        
+        try {
+          button.disabled = true;
+          button.querySelector('.vr-enter-text').textContent = 'Opening...';
+          statusText.textContent = '🚀 Opening VR interface...';
+          
+          // Get tunnel URL from API
+          const response = await fetch('/api/tunnel-url');
+          const data = await response.json();
+          
+          if (data.tunnel_url) {
+            // Open VR page in tunnel
+            const vrUrl = data.tunnel_url + '/vr.html';
+            window.open(vrUrl, '_blank');
+            statusText.textContent = '✅ VR interface opened in new tab';
+          } else {
+            // Fallback to local VR page (for offline mode)
+            const vrUrl = window.location.origin + '/vr.html';
+            window.open(vrUrl, '_blank');
+            statusText.textContent = '✅ VR interface opened locally';
+          }
+          
+        } catch (error) {
+          console.error('Error opening VR:', error);
+          statusText.textContent = '❌ Error opening VR interface';
+        } finally {
+          // Reset button after delay
+          setTimeout(() => {
+            button.disabled = false;
+            button.querySelector('.vr-enter-text').textContent = 'Enter VR';
+          }, 2000);
         }
+      }
+      
+      // Update VR tunnel status
+      async function updateVRTunnelStatus() {
+        try {
+          const response = await fetch('/api/tunnel-url');
+          const data = await response.json();
+          const statusText = document.getElementById('vrTunnelStatus');
+          
+          if (data.tunnel_url) {
+            statusText.textContent = '🌐 VR ready via secure tunnel';
+          } else {
+            statusText.textContent = '🔒 VR ready via local HTTPS (may show certificate warning)';
+          }
+        } catch (error) {
+          console.error('Error checking tunnel status:', error);
+        }
+      }
+      
+      // Initialize on page load
+      document.addEventListener('DOMContentLoaded', function() {
+        updateVRTunnelStatus();
+        // Check tunnel status periodically
+        setInterval(updateVRTunnelStatus, 5000);
       });
     </script>
   </body>

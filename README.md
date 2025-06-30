@@ -151,11 +151,11 @@ Use this for completely local operation without internet connection. Shows certi
 $ telegrip
 🤖 telegrip starting...
 📱 Open the UI in your browser on:
-   http://192.168.1.100:8080
+   http://192.168.1.100:8443
 🌐 Creating secure tunnel (no certificate warnings)...
 ```
 
-All users (desktop and VR) visit http://192.168.1.100:8080 and get seamlessly redirected to the tunnel with valid certificates.
+All users (desktop and VR) visit http://192.168.1.100:8443 and get seamlessly redirected to the tunnel with valid certificates.
 
 **Offline mode example:**
 ```bash
