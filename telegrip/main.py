@@ -194,8 +194,6 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
             self.handle_keyboard_request()
         elif self.path == '/api/robot':
             self.handle_robot_request()
-        elif self.path == '/api/keypress':
-            self.handle_keypress_request()
         elif self.path == '/api/config':
             self.handle_config_post_request()
         elif self.path == '/api/restart':
@@ -321,46 +319,7 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
             logger.error(f"Error handling robot request: {e}")
             self.send_error(500, str(e))
     
-    def handle_keypress_request(self):
-        """Handle keypress control requests."""
-        try:
-            content_length = int(self.headers.get('Content-Length', 0))
-            if content_length == 0:
-                self.send_error(400, "No request body")
-                return
-            
-            post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode('utf-8'))
-            
-            key = data.get('key')
-            action = data.get('action')
-            
-            if key and action in ['press', 'release']:
-                # Add keypress command to queue for processing by main thread
-                if hasattr(self.server, 'api_handler') and self.server.api_handler:
-                    command = {
-                        "action": "web_keypress",
-                        "key": key,
-                        "event": action
-                    }
-                    logger.info(f"🎮 Adding keypress command to queue: {key}_{action}")
-                    self.server.api_handler.add_keypress_command(command)
-                    
-                    self.send_response(200)
-                    self.send_header('Content-Type', 'application/json')  
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"success": True, "key": key, "action": action}).encode('utf-8'))
-                else:
-                    logger.error("🎮 Server api_handler not available")
-                    self.send_error(500, "System not available")
-            else:
-                self.send_error(400, f"Invalid key or action: {key}, {action}")
-                
-        except json.JSONDecodeError:
-            self.send_error(400, "Invalid JSON")
-        except Exception as e:
-            logger.error(f"Error handling keypress request: {e}")
-            self.send_error(500, str(e))
+
     
     def handle_config_get_request(self):
         """Handle configuration read requests."""
@@ -901,16 +860,7 @@ class TelegripSystem:
         except Exception as e:
             logger.error(f"🔌 Error queuing command: {e}")
     
-    def add_keypress_command(self, command: dict):
-        """Add a keypress command to the queue for processing."""
-        try:
-            logger.info(f"🎮 Queueing keypress command: {command}")
-            self.control_commands_queue.put_nowait(command)
-            logger.info(f"🎮 Keypress command queued successfully")
-        except queue.Full:
-            logger.warning(f"Control commands queue is full, dropping keypress command: {command}")
-        except Exception as e:
-            logger.error(f"🎮 Error queuing keypress command: {e}")
+
     
     async def process_control_commands(self):
         """Process control commands from the thread-safe queue."""
