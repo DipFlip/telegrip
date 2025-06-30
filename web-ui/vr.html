@@ -17,63 +17,48 @@
         font-family: Arial, sans-serif;
       }
       
-      .vr-overlay {
+      .vr-start-button {
         position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        z-index: 1000;
-        background: rgba(0, 0, 0, 0.8);
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        text-align: center;
-        padding: 20px;
-      }
-      
-      .vr-title {
-        font-size: 2.5em;
-        margin-bottom: 20px;
-        color: #fff;
-      }
-      
-      .vr-subtitle {
-        font-size: 1.2em;
-        margin-bottom: 30px;
-        color: #ccc;
-        max-width: 600px;
-        line-height: 1.4;
-      }
-      
-      .vr-button {
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
         background: linear-gradient(45deg, #00d4ff, #0099cc);
         border: none;
-        padding: 15px 30px;
-        font-size: 1.3em;
+        padding: 20px 40px;
+        font-size: 1.5em;
         color: white;
         border-radius: 8px;
         cursor: pointer;
-        margin: 10px;
+        z-index: 1000;
         box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
         transition: all 0.3s ease;
+        font-weight: bold;
       }
       
-      .vr-button:hover {
-        transform: translateY(-2px);
+      .vr-start-button:hover {
+        transform: translate(-50%, -50%) scale(1.05);
         box-shadow: 0 6px 20px rgba(0, 212, 255, 0.4);
       }
       
-      .vr-button:active {
-        transform: translateY(0);
+      .vr-start-button:active {
+        transform: translate(-50%, -50%) scale(0.98);
+      }
+      
+      .vr-start-button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: translate(-50%, -50%);
       }
       
       .vr-status {
-        margin-top: 20px;
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
         padding: 10px 20px;
         border-radius: 5px;
         font-size: 1.1em;
+        z-index: 1000;
       }
       
       .status-connecting {
@@ -99,62 +84,55 @@
       }
       
       .vr-instructions {
-        margin-top: 30px;
-        max-width: 500px;
+        position: fixed;
+        top: 20px;
+        left: 20px;
+        max-width: 300px;
         color: #bbb;
         font-size: 0.9em;
-        line-height: 1.5;
-        text-align: center;
+        line-height: 1.4;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #333;
       }
       
       .vr-instructions h4 {
         color: #fff;
-        margin-bottom: 10px;
+        margin: 0 0 10px 0;
+        font-size: 1em;
       }
       
       .vr-instructions ul {
-        text-align: left;
-        padding-left: 20px;
+        margin: 0;
+        padding-left: 15px;
       }
       
       .vr-instructions li {
-        margin-bottom: 8px;
-      }
-      
-      .vr-instructions-image {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 20px;
+        margin-bottom: 5px;
       }
     </style>
   </head>
   <body>
-    <!-- VR Overlay -->
-    <div class="vr-overlay" id="vrOverlay">
-      <div class="vr-title">🥽 telegrip VR</div>
-      <div class="vr-subtitle">
-        Put on your VR headset and start controlling the robot arms with your controllers
-      </div>
-      
-      <button class="vr-button" id="startVrButton" onclick="startVR()">
-        🚀 Start VR Session
-      </button>
-      
-      <div class="vr-status status-connecting" id="vrStatus">
-        🔌 Connecting to robot system...
-      </div>
-      
-      <div class="vr-instructions">
-        <div class="vr-instructions-image">
-          <img src="media/telegrip_instructions.jpg" alt="VR Controller Instructions" style="max-width: 300px; height: auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(255,255,255,0.1); margin-bottom: 20px;">
-        </div>
-        <h4>📋 Quick Controls:</h4>
-        <ul>
-          <li><strong>Grip Button:</strong> Hold to move robot arm with your controller</li>
-          <li><strong>Trigger Button:</strong> Hold to close gripper, release to open</li>
-          <li><strong>Controller Orientation:</strong> Robot wrist follows your controller rotation</li>
-        </ul>
-      </div>
+    <!-- Start VR Button -->
+    <button class="vr-start-button" id="startVrButton" onclick="startVR()">
+      🥽 Start VR Session
+    </button>
+    
+    <!-- Status Display -->
+    <div class="vr-status status-connecting" id="vrStatus">
+      🔌 Connecting to robot system...
+    </div>
+    
+    <!-- Instructions Panel -->
+    <div class="vr-instructions" id="vrInstructions">
+      <h4>🎮 VR Controls:</h4>
+      <ul>
+        <li><strong>Grip Button:</strong> Hold to control robot arm</li>
+        <li><strong>Trigger:</strong> Open/close gripper</li>
+        <li><strong>Controller:</strong> Robot follows your movement</li>
+      </ul>
     </div>
 
     <!-- A-Frame VR Scene -->
@@ -180,26 +158,78 @@
       function startVR() {
         if (vrStarted) return;
         
-        const overlay = document.getElementById('vrOverlay');
-        const scene = document.querySelector('a-scene');
         const button = document.getElementById('startVrButton');
         const status = document.getElementById('vrStatus');
+        const instructions = document.getElementById('vrInstructions');
+        const scene = document.querySelector('a-scene');
         
         vrStarted = true;
-        button.textContent = '⏳ Starting...';
+        button.textContent = '⏳ Starting VR...';
         button.disabled = true;
         
-        // Hide overlay after a short delay
-        setTimeout(() => {
-          overlay.classList.add('hidden');
-        }, 1000);
-        
-        // Update status
-        status.className = 'vr-status status-connected';
-        status.textContent = '✅ VR Session Active';
-        
-        console.log('🥽 VR session started');
+        // Start the VR session
+        if (scene) {
+          scene.enterVR(true).then(() => {
+            console.log('🥽 VR session started successfully');
+            
+            // Hide UI elements when in VR
+            button.classList.add('hidden');
+            instructions.classList.add('hidden');
+            
+            // Update status
+            status.className = 'vr-status status-connected';
+            status.textContent = '✅ VR Session Active';
+            
+          }).catch((err) => {
+            console.error('Failed to start VR session:', err);
+            
+            // Reset button on error
+            vrStarted = false;
+            button.textContent = '🥽 Start VR Session';
+            button.disabled = false;
+            
+            // Show error status
+            status.className = 'vr-status status-error';
+            status.textContent = '❌ Failed to start VR session';
+          });
+        } else {
+          console.error('A-Frame scene not found');
+          
+          // Reset on error
+          vrStarted = false;
+          button.textContent = '🥽 Start VR Session';
+          button.disabled = false;
+          
+          status.className = 'vr-status status-error';
+          status.textContent = '❌ Scene not found';
+        }
       }
+      
+      // Listen for VR session events to show/hide UI elements
+      document.addEventListener('DOMContentLoaded', function() {
+        const button = document.getElementById('startVrButton');
+        const instructions = document.getElementById('vrInstructions');
+        const scene = document.querySelector('a-scene');
+        
+        if (scene) {
+          scene.addEventListener('enter-vr', () => {
+            console.log('Entered VR - hiding UI elements');
+            button.classList.add('hidden');
+            instructions.classList.add('hidden');
+          });
+
+          scene.addEventListener('exit-vr', () => {
+            console.log('Exited VR - showing UI elements');
+            button.classList.remove('hidden');
+            instructions.classList.remove('hidden');
+            
+            // Reset button state
+            vrStarted = false;
+            button.textContent = '🥽 Start VR Session';
+            button.disabled = false;
+          });
+        }
+      });
       
       // Global VR status update function for vr_app.js
       window.updateVRStatus = function(connected, message) {
@@ -212,12 +242,6 @@
           status.textContent = message || '❌ Connection failed';
         }
       };
-      
-      // Show overlay initially
-      document.addEventListener('DOMContentLoaded', function() {
-        const overlay = document.getElementById('vrOverlay');
-        overlay.classList.remove('hidden');
-      });
     </script>
   </body>
 </html> 
