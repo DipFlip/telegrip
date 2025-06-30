@@ -110,12 +110,61 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
         """Override to reduce HTTP request logging noise."""
         pass  # Disable default HTTP logging
     
+    def should_redirect_to_tunnel(self):
+        """Check if request should be redirected to tunnel URL."""
+        # Only redirect main page requests, not API calls or assets
+        if not (self.path == '/' or self.path == '/index.html'):
+            return False
+        
+        # Check if tunnel is available
+        tunnel_url = None
+        if hasattr(self.server, 'api_handler') and self.server.api_handler:
+            if hasattr(self.server.api_handler, 'tunnel_service'):
+                tunnel_url = self.server.api_handler.tunnel_service.get_public_url()
+        
+        if not tunnel_url:
+            return False
+        
+        # Check for VR headset User-Agent
+        user_agent = self.headers.get('User-Agent', '').lower()
+        vr_indicators = [
+            'quest',           # Meta Quest browsers
+            'oculus',          # Oculus browsers  
+            'vr',              # Generic VR
+            'headset',         # Generic headset
+            'samsung internet', # Samsung VR browser
+            'pico',            # Pico VR
+            'htc',             # HTC Vive
+            'varjo',           # Varjo headsets
+            'openxr'           # OpenXR browsers
+        ]
+        
+        is_vr_headset = any(indicator in user_agent for indicator in vr_indicators)
+        
+        if is_vr_headset:
+            logger.info(f"🥽 VR headset detected ({user_agent[:50]}...), redirecting to tunnel: {tunnel_url}")
+            
+            # Send redirect response
+            self.send_response(302)
+            self.send_header('Location', tunnel_url + self.path)
+            self.send_header('Cache-Control', 'no-cache')
+            self.end_headers()
+            return True
+        
+        return False
+    
     def do_GET(self):
         """Handle GET requests."""
+        # Check for VR headset and redirect to tunnel if available
+        if self.should_redirect_to_tunnel():
+            return
+            
         if self.path == '/api/status':
             self.handle_status_request()
         elif self.path == '/api/config':
             self.handle_config_get_request()
+        elif self.path == '/api/local-ip':
+            self.handle_local_ip_request()
         elif self.path == '/' or self.path == '/index.html':
             # Serve main page from web-ui directory
             self.serve_file('web-ui/index.html', 'text/html')
@@ -330,6 +379,23 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
             logger.error(f"Error handling config get request: {e}")
             self.send_error(500, str(e))
     
+    def handle_local_ip_request(self):
+        """Handle local IP address requests."""
+        try:
+            local_ip = get_local_ip()
+            
+            # Send JSON response
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            
+            response = json.dumps({"local_ip": local_ip})
+            self.wfile.write(response.encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Error handling local IP request: {e}")
+            self.send_error(500, str(e))
+    
     def handle_config_post_request(self):
         """Handle configuration update requests."""
         try:
@@ -421,6 +487,7 @@ class HTTPSServer:
     
     async def start(self):
         """Start the HTTPS server."""
+        server_type = "HTTP API"  # Default value
         try:
             # Create server - directly use APIHandler class
             self.httpd = http.server.HTTPServer((self.config.host_ip, self.config.https_port), APIHandler)
@@ -428,12 +495,16 @@ class HTTPSServer:
             # Set API handler reference for command queuing
             self.httpd.api_handler = self.system_ref
             
-            # Setup SSL
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-            # Get absolute paths for SSL certificates
-            cert_path, key_path = self.config.get_absolute_ssl_paths()
-            context.load_cert_chain(cert_path, key_path)
-            self.httpd.socket = context.wrap_socket(self.httpd.socket, server_side=True)
+            # Setup SSL only in offline mode
+            if self.config.offline_mode:
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                # Get absolute paths for SSL certificates
+                cert_path, key_path = self.config.get_absolute_ssl_paths()
+                context.load_cert_chain(cert_path, key_path)
+                self.httpd.socket = context.wrap_socket(self.httpd.socket, server_side=True)
+                server_type = "HTTPS"
+            else:
+                server_type = "HTTP API"
             
             # Start server in a separate thread
             self.server_thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
@@ -441,10 +512,10 @@ class HTTPSServer:
             
             # Only log if INFO level or more verbose
             if getattr(logging, self.config.log_level.upper()) <= logging.INFO:
-                logger.info(f"HTTPS server started on {self.config.host_ip}:{self.config.https_port}")
+                logger.info(f"{server_type} server started on {self.config.host_ip}:{self.config.https_port}")
             
         except Exception as e:
-            logger.error(f"Failed to start HTTPS server: {e}")
+            logger.error(f"Failed to start {server_type} server: {e}")
             raise
     
     async def stop(self):
@@ -454,6 +525,98 @@ class HTTPSServer:
             if self.server_thread:
                 self.server_thread.join(timeout=5)
             logger.info("HTTPS server stopped")
+
+
+class HTTPRedirectServer:
+    """Plain HTTP server that redirects users to tunnel (no certificate warnings)."""
+    
+    def __init__(self, config: TelegripConfig):
+        self.config = config
+        self.httpd = None
+        self.server_thread = None
+        self.system_ref = None  # Direct reference to the main system
+    
+    def set_system_ref(self, system_ref):
+        """Set reference to the main teleoperation system."""
+        self.system_ref = system_ref
+    
+    async def start(self):
+        """Start the HTTP redirect server."""
+        if self.config.offline_mode:
+            return  # Only run when tunnel is enabled (default behavior)
+            
+        try:
+            # Create redirect handler
+            class RedirectHandler(http.server.BaseHTTPRequestHandler):
+                def log_message(self, format, *args):
+                    pass  # Disable logging
+                
+                def do_GET(self):
+                    # Redirect all users to tunnel if available
+                    if hasattr(self.server, 'system_ref') and self.server.system_ref:
+                        tunnel_url = self.server.system_ref.tunnel_service.get_public_url()
+                        if tunnel_url:
+                            logger.debug(f"🌐 Redirecting to tunnel: {tunnel_url}")
+                            self.send_response(302)
+                            self.send_header('Location', tunnel_url + self.path)
+                            self.send_header('Cache-Control', 'no-cache')
+                            self.end_headers()
+                            return
+                    
+                    # Tunnel not ready yet - show loading page
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/html')
+                    self.end_headers()
+                    
+                    html = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <title>telegrip - Starting...</title>
+                        <meta http-equiv="refresh" content="3">
+                        <style>
+                            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+                            .loading {{ color: #666; }}
+                        </style>
+                    </head>
+                    <body>
+                        <h1>🤖 telegrip</h1>
+                        <p class="loading">⏳ Creating secure tunnel...</p>
+                        <p><small>This page will automatically refresh</small></p>
+                    </body>
+                    </html>
+                    """
+                    self.wfile.write(html.encode('utf-8'))
+            
+            # Find available port (8080, 8081, etc.)
+            http_port = 8080
+            max_attempts = 10
+            for attempt in range(max_attempts):
+                try:
+                    self.httpd = http.server.HTTPServer((self.config.host_ip, http_port), RedirectHandler)
+                    self.httpd.system_ref = self.system_ref
+                    break
+                except OSError:
+                    http_port += 1
+                    if attempt == max_attempts - 1:
+                        raise
+            
+            # Start server in a separate thread
+            self.server_thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+            self.server_thread.start()
+            
+            logger.info(f"HTTP redirect server started on {self.config.host_ip}:{http_port}")
+            
+        except Exception as e:
+            logger.error(f"Failed to start HTTP redirect server: {e}")
+    
+    async def stop(self):
+        """Stop the HTTP redirect server."""
+        if self.httpd:
+            self.httpd.shutdown()
+            if self.server_thread:
+                self.server_thread.join(timeout=5)
+            logger.info("HTTP redirect server stopped")
 
 
 class TunnelService:
@@ -488,8 +651,11 @@ class TunnelService:
             
             def _proxy_request(self):
                 try:
-                    # Build target URL (forward to HTTPS server)
-                    target_url = f"https://localhost:{self.server.https_port}{self.path}"
+                    # Build target URL (HTTP in default mode, HTTPS in offline mode)
+                    if self.server.offline_mode:
+                        target_url = f"https://localhost:{self.server.https_port}{self.path}"
+                    else:
+                        target_url = f"http://localhost:{self.server.https_port}{self.path}"
                     
                     # Create request
                     request = urllib.request.Request(target_url)
@@ -505,13 +671,17 @@ class TunnelService:
                         post_data = self.rfile.read(content_length)
                         request.data = post_data
                     
-                    # Make request (disable SSL verification for localhost)
-                    import ssl
-                    context = ssl.create_default_context()
-                    context.check_hostname = False
-                    context.verify_mode = ssl.CERT_NONE
-                    
-                    response = urllib.request.urlopen(request, context=context)
+                    # Make request with SSL context only for HTTPS
+                    if self.server.offline_mode:
+                        # HTTPS with self-signed cert - disable verification
+                        import ssl
+                        context = ssl.create_default_context()
+                        context.check_hostname = False
+                        context.verify_mode = ssl.CERT_NONE
+                        response = urllib.request.urlopen(request, context=context)
+                    else:
+                        # HTTP - no SSL context needed
+                        response = urllib.request.urlopen(request)
                     
                     # Forward response
                     self.send_response(response.getcode())
@@ -537,6 +707,7 @@ class TunnelService:
             try:
                 self.http_proxy_server = http.server.HTTPServer(('localhost', proxy_port), ProxyHandler)
                 self.http_proxy_server.https_port = self.config.https_port  # Pass HTTPS port to handler
+                self.http_proxy_server.offline_mode = self.config.offline_mode  # Pass offline mode to handler
                 break
             except OSError:
                 proxy_port += 1
@@ -555,7 +726,7 @@ class TunnelService:
 
     async def start(self):
         """Start the tunnel service."""
-        if not self.config.enable_online:
+        if self.config.offline_mode:
             return
         
         try:
@@ -700,6 +871,7 @@ class TelegripSystem:
         
         # Components
         self.https_server = HTTPSServer(config)
+        self.http_redirect_server = HTTPRedirectServer(config)
         self.tunnel_service = TunnelService(config)
         self.vr_server = VRWebSocketServer(self.command_queue, config)
         self.keyboard_listener = KeyboardListener(self.command_queue, config)
@@ -707,6 +879,7 @@ class TelegripSystem:
         
         # Set system reference for API calls
         self.https_server.set_system_ref(self)
+        self.http_redirect_server.set_system_ref(self)
         
         # Set up cross-references
         self.control_loop.keyboard_listener = self.keyboard_listener
@@ -804,7 +977,7 @@ class TelegripSystem:
             await self.control_loop.stop()
             await self.keyboard_listener.stop()
             await self.vr_server.stop()
-            # Don't stop tunnel service or HTTPS server - keep them running for the UI
+            # Don't stop tunnel service, HTTP redirect server, or HTTPS server - keep them running for the UI
             
             # Wait a moment for cleanup
             await asyncio.sleep(1)
@@ -869,6 +1042,9 @@ class TelegripSystem:
             
             # Start HTTPS server
             await self.https_server.start()
+            
+            # Start HTTP redirect server (if tunnel enabled)
+            await self.http_redirect_server.start()
             
             # Start tunnel service (if enabled)
             await self.tunnel_service.start()
@@ -963,6 +1139,7 @@ class TelegripSystem:
         await self.keyboard_listener.stop()
         await self.vr_server.stop()
         await self.tunnel_service.stop()
+        await self.http_redirect_server.stop()
         await self.https_server.stop()
         
         logger.info("Teleoperation system shutdown complete")
@@ -986,7 +1163,7 @@ def parse_arguments():
     parser.add_argument("--no-keyboard", action="store_true", help="Disable keyboard input")
     parser.add_argument("--no-https", action="store_true", help="Disable HTTPS server")
     parser.add_argument("--autoconnect", action="store_true", help="Automatically connect to robot motors on startup")
-    parser.add_argument("--online", action="store_true", help="Create public tunnel with real HTTPS certificate (no browser warnings)")
+    parser.add_argument("--offline", action="store_true", help="Use self-signed certificates (offline mode - shows browser warnings)")
     parser.add_argument("--log-level", default="warning", 
                        choices=["debug", "info", "warning", "error", "critical"],
                        help="Set logging level (default: warning)")
@@ -1023,7 +1200,7 @@ def create_config_from_args(args) -> TelegripConfig:
     config.enable_vr = not args.no_vr
     config.enable_keyboard = not args.no_keyboard
     config.autoconnect = args.autoconnect
-    config.enable_online = args.online
+    config.offline_mode = args.offline
     config.log_level = args.log_level
     
     config.https_port = args.https_port
@@ -1089,19 +1266,19 @@ async def main():
         logger.info(f"  HTTPS Port: {config.https_port}")
         logger.info(f"  WebSocket Port: {config.websocket_port}")
         logger.info(f"  Robot Ports: {config.follower_ports}")
-        logger.info(f"  Online tunnel: {'enabled' if config.enable_online else 'disabled'}")
+        logger.info(f"  Offline mode: {'enabled' if config.offline_mode else 'disabled'}")
     else:
         # Show clean startup message with HTTPS URL
         host_display = get_local_ip() if config.host_ip == "0.0.0.0" else config.host_ip
         print(f"🤖 telegrip starting...")
-        if config.enable_online:
-            print(f"📱 Local URL (may show browser warnings):")
+        if config.offline_mode:
+            print(f"📱 Offline mode - Open the UI in your browser on:")
             print(f"   https://{host_display}:{config.https_port}")
-            print(f"🌐 Creating public URL (no warnings)...")
+            print(f"⚠️  You may need to accept certificate warnings")
         else:
             print(f"📱 Open the UI in your browser on:")
-            print(f"   https://{host_display}:{config.https_port}")
-            print(f"📱 Then go to the same address on your VR headset browser")
+            print(f"   http://{host_display}:8080")
+            print(f"🌐 Creating secure tunnel (no certificate warnings)...")
         print(f"💡 Use --log-level info to see detailed output")
         print()
     

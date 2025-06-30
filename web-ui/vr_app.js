@@ -34,48 +34,134 @@ AFRAME.registerComponent('controller-updater', {
     this.rightZAxisRotation = 0;
 
     // --- Smart WebSocket connection (try local first, then tunnel) ---
-    let websocketUrl;
     
-    if (window.bestWebSocketUrl) {
-      // Use the best connection detected by interface.js
-      websocketUrl = window.bestWebSocketUrl;
-      console.log(`🚀 Using optimized WebSocket connection: ${websocketUrl}`);
-    } else {
-      // Fallback to current hostname method
-      const serverHostname = window.location.hostname;
-      const websocketPort = 8442;
-      websocketUrl = `wss://${serverHostname}:${websocketPort}`;
-      console.log(`🌐 Using fallback WebSocket connection: ${websocketUrl}`);
-    }
+    // Wait for interface.js to complete local IP detection, then connect
+    const initWebSocketConnection = () => {
+      console.log(`🔍 Checking window.bestWebSocketUrl: ${window.bestWebSocketUrl}`);
+      
+      // Determine connection URLs
+      let primaryWebSocketUrl, fallbackWebSocketUrl;
+      
+      if (window.bestWebSocketUrl) {
+        // Use local connection first (ultra-low latency)
+        primaryWebSocketUrl = window.bestWebSocketUrl;
+        fallbackWebSocketUrl = `wss://${window.location.hostname}:8442`;
+        console.log(`🚀 Primary: Local WebSocket (${primaryWebSocketUrl})`);
+        console.log(`🌐 Fallback: Tunnel WebSocket (${fallbackWebSocketUrl})`);
+      } else {
+        // Only tunnel available
+        primaryWebSocketUrl = `wss://${window.location.hostname}:8442`;
+        fallbackWebSocketUrl = null;
+        console.log(`🌐 Only tunnel WebSocket available: ${primaryWebSocketUrl}`);
+      }
+      
+      // Start connection attempts
+      this.connectWebSocketWithFallback(primaryWebSocketUrl, fallbackWebSocketUrl);
+    };
+    
+    // Wait for local IP detection or timeout
+    const checkForLocalIP = () => {
+      if (window.localIPDetectionComplete || window.bestWebSocketUrl) {
+        initWebSocketConnection();
+      } else {
+        // Check again in 100ms, timeout after 3 seconds
+        setTimeout(() => {
+          initWebSocketConnection(); // Connect anyway after timeout
+        }, 3000);
+        
+        // Keep checking every 100ms
+        const checkInterval = setInterval(() => {
+          if (window.localIPDetectionComplete || window.bestWebSocketUrl) {
+            clearInterval(checkInterval);
+            initWebSocketConnection();
+          }
+        }, 100);
+        
+        // Clear interval after timeout
+        setTimeout(() => {
+          clearInterval(checkInterval);
+        }, 3000);
+      }
+    };
+    
+    // Start the process
+    checkForLocalIP();
     // !!! IMPORTANT: Replace 'YOUR_LAPTOP_IP' with the actual IP address of your laptop !!!
     // const websocketUrl = 'ws://YOUR_LAPTOP_IP:8442';
-    try {
-      this.websocket = new WebSocket(websocketUrl);
-      this.websocket.onopen = (event) => {
-        console.log(`WebSocket connected to ${websocketUrl}`);
+    // Try to connect with auto-fallback
+    this.connectWebSocketWithFallback = (primaryUrl, fallbackUrl) => {
+      // Validate URLs
+      if (!primaryUrl) {
+        console.error("❌ No WebSocket URL provided");
+        this.reportVRStatus(false);
+        return;
+      }
+      
+      console.log(`🔌 Attempting connection to: ${primaryUrl}`);
+      
+      const ws = new WebSocket(primaryUrl);
+      let connectionTimeout;
+      let fallbackAttempted = false;
+      
+      // Set connection timeout
+      connectionTimeout = setTimeout(() => {
+        if (ws.readyState === WebSocket.CONNECTING && !fallbackAttempted && fallbackUrl) {
+          console.log(`⏱️ Connection timeout, trying fallback: ${fallbackUrl}`);
+          fallbackAttempted = true;
+          ws.close();
+          this.connectWebSocketWithFallback(fallbackUrl, null); // No second fallback
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          console.log(`⏱️ Connection timeout, no fallback available`);
+          ws.close();
+          this.reportVRStatus(false);
+        }
+      }, 3000);
+      
+      ws.onopen = (event) => {
+        clearTimeout(connectionTimeout);
+        const connectionType = primaryUrl && primaryUrl.includes(window.location.hostname) ? 'tunnel' : 'local';
+        console.log(`✅ WebSocket connected to ${primaryUrl} (${connectionType})`);
+        this.websocket = ws;
         this.reportVRStatus(true);
       };
-      this.websocket.onerror = (event) => {
-        // More detailed error logging
-        console.error(`WebSocket Error: Event type: ${event.type}`, event);
+      
+      ws.onerror = (event) => {
+        clearTimeout(connectionTimeout);
+        console.error(`❌ WebSocket Error on ${primaryUrl}:`, event);
+        
+        // Try fallback if available and not already attempted
+        if (fallbackUrl && !fallbackAttempted) {
+          fallbackAttempted = true;
+          console.log(`🔄 Retrying with fallback: ${fallbackUrl}`);
+          this.connectWebSocketWithFallback(fallbackUrl, null);
+        } else {
+          console.log(`💀 No fallback available, connection failed`);
         this.reportVRStatus(false);
-      };
-      this.websocket.onclose = (event) => {
-        console.log(`WebSocket disconnected from ${websocketUrl}. Clean close: ${event.wasClean}, Code: ${event.code}, Reason: '${event.reason}'`);
-        // Attempt to log specific error if available (might be limited by browser security)
-        if (!event.wasClean) {
-          console.error('WebSocket closed unexpectedly.');
         }
-        this.websocket = null; // Clear the reference
-        this.reportVRStatus(false);
       };
-      this.websocket.onmessage = (event) => {
-        console.log(`WebSocket message received: ${event.data}`); // Log any messages from server
-      };
-    } catch (error) {
-        console.error(`Failed to create WebSocket connection to ${websocketUrl}:`, error);
+      
+      ws.onclose = (event) => {
+        clearTimeout(connectionTimeout);
+        const connectionType = primaryUrl && primaryUrl.includes(window.location.hostname) ? 'tunnel' : 'local';
+        console.log(`🔌 WebSocket disconnected from ${primaryUrl} (${connectionType}). Code: ${event.code}`);
+        
+        // Try fallback on unexpected close if available and not already attempted
+        if (!event.wasClean && fallbackUrl && !fallbackAttempted) {
+          fallbackAttempted = true;
+          console.log(`🔄 Connection failed, trying fallback: ${fallbackUrl}`);
+          this.connectWebSocketWithFallback(fallbackUrl, null);
+        } else {
+          this.websocket = null;
         this.reportVRStatus(false);
-    }
+        }
+      };
+      
+      ws.onmessage = (event) => {
+        console.log(`📨 WebSocket message received: ${event.data}`);
+      };
+    };
+    
+
     // --- End WebSocket Setup ---
 
     // --- VR Status Reporting Function ---

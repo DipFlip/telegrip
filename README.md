@@ -81,6 +81,8 @@ Then go to the same address on your VR headset browser
 Click on or enter your address in a browser to show the UI. Visit the same address from your VR headset to enter the VR web-app. The first time you should enter robot arm port information under the settings menu (top right). Alternatively you can manually enter the details in the `config.yaml` file in the root of this repo.
 Once you see that the robot arms are found (green indicators) you can click "Connect Robot" and start controlling it by keyboard or with the VR headset.
 
+**For VR headsets**: By default, telegrip eliminates certificate warnings by using a secure tunnel. Simply use the HTTP address shown at startup. If you need offline operation, use `telegrip --offline` but you'll need to accept certificate warnings.
+
 ### Command Line Options
 
 ```bash
@@ -93,7 +95,7 @@ Options:
   --no-vr           Disable VR WebSocket server
   --no-keyboard     Disable keyboard input
   --autoconnect     Automatically connect to robot motors on startup
-  --online          Create public tunnel with real HTTPS certificate (no browser warnings)
+  --offline         Use self-signed certificates (offline mode - shows browser warnings)
   --log-level LEVEL Set logging level: debug, info, warning, error, critical (default: warning)
   --https-port PORT HTTPS server port (default: 8443)
   --ws-port PORT    WebSocket server port (default: 8442)
@@ -130,22 +132,38 @@ telegrip --no-viz
 telegrip --autoconnect
 ```
 
-**Public Access** (no browser warnings on VR headsets):
+**Default Behavior** (no browser warnings):
 ```bash
-telegrip --online
+telegrip
 ```
 
-This creates a secure tunnel through localhost.run that gives you a public HTTPS URL with a valid certificate. Perfect for VR headsets that would otherwise show browser security warnings.
+By default, telegrip creates a secure tunnel through localhost.run with trusted HTTPS certificates. Users simply visit the HTTP address which automatically redirects to the tunnel.
 
-**Example with --online:**
+**Offline Mode** (self-signed certificates):
 ```bash
-$ telegrip --online
+telegrip --offline
+```
+
+Use this for completely local operation without internet connection. Shows certificate warnings that users must accept.
+
+**Example (default behavior):**
+```bash
+$ telegrip
 🤖 telegrip starting...
-📱 Local URL (may show browser warnings):
+📱 Open the UI in your browser on:
+   http://192.168.1.100:8080
+🌐 Creating secure tunnel (no certificate warnings)...
+```
+
+All users (desktop and VR) visit http://192.168.1.100:8080 and get seamlessly redirected to the tunnel with valid certificates.
+
+**Offline mode example:**
+```bash
+$ telegrip --offline
+🤖 telegrip starting...
+📱 Offline mode - Open the UI in your browser on:
    https://192.168.1.100:8443
-🌐 Creating public URL (no warnings)...
-🌐 Public URL (use this on VR headset - no warnings!):
-   https://abc123-def456.localhost.run
+⚠️  You may need to accept certificate warnings
 ```
 
 ## Control Methods

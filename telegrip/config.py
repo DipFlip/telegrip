@@ -219,7 +219,7 @@ class TelegripConfig:
     enable_vr: bool = True
     enable_keyboard: bool = True
     autoconnect: bool = False
-    enable_online: bool = False
+    offline_mode: bool = False
     log_level: str = "warning"
     
     # Paths

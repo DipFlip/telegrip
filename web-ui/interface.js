@@ -7,63 +7,69 @@ let currentConfig = {};
 let bestServerUrl = null;
 let bestWebSocketUrl = null;
 let localIpDetected = null;
+let detectionInProgress = false;
 
 // Detect local network and find best connection method
 async function detectBestConnection() {
-  console.log('🔍 Detecting best connection method...');
-  
-  // If we're already on a local IP, use it directly
-  const hostname = window.location.hostname;
-  if (hostname.match(/^192\.168\./) || hostname.match(/^10\./) || hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || hostname === 'localhost') {
-    console.log('✅ Already on local network');
-    bestServerUrl = window.location.origin;
-    bestWebSocketUrl = `wss://${hostname}:8442`;
+  if (detectionInProgress) {
+    console.log('🔍 Detection already in progress, skipping...');
     return;
   }
   
-  // Try to detect local IP by making test connections
-  const commonLocalIPs = [
-    '192.168.1.1', '192.168.1.100', '192.168.1.101', '192.168.1.200',
-    '192.168.0.1', '192.168.0.100', '192.168.0.101', '192.168.0.200',
-    '192.168.7.1', '192.168.7.100', '192.168.7.200', '192.168.7.233',
-    '10.0.0.1', '10.0.0.100', '10.0.1.1', '10.0.1.100'
-  ];
+  if (bestServerUrl && bestWebSocketUrl) {
+    console.log('🔍 Connection already detected, skipping...');
+    return;
+  }
   
-  // Test each IP for telegrip server
-  for (const ip of commonLocalIPs) {
+  detectionInProgress = true;
+  console.log('🔍 Detecting best connection method...');
+  
+  try {
+    // If we're already on a local IP, use it directly
+    const hostname = window.location.hostname;
+    if (hostname.match(/^192\.168\./) || hostname.match(/^10\./) || hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./) || hostname === 'localhost') {
+      console.log('✅ Already on local network');
+      localIpDetected = hostname;
+      bestServerUrl = window.location.origin;
+      bestWebSocketUrl = `wss://${hostname}:8442`;
+      console.log(`🔧 Set bestWebSocketUrl to: ${bestWebSocketUrl}`);
+      return;
+    }
+    
+    // We're on tunnel - ask server for its local IP
+    console.log('🔍 Getting server local IP...');
     try {
-      console.log(`🔍 Testing connection to ${ip}:8443...`);
-      
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
-      
-      const response = await fetch(`https://${ip}:8443/api/status`, {
-        method: 'GET',
-        signal: controller.signal,
-        mode: 'cors',
-        cache: 'no-cache'
-      });
-      
-      clearTimeout(timeoutId);
-      
+      const response = await fetch('/api/local-ip');
       if (response.ok) {
-        console.log(`✅ Found telegrip server at ${ip}:8443`);
-        localIpDetected = ip;
-        bestServerUrl = `https://${ip}:8443`;
-        bestWebSocketUrl = `wss://${ip}:8442`;
+        const data = await response.json();
+        const serverLocalIp = data.local_ip;
+        console.log(`🏠 Server local IP: ${serverLocalIp}`);
+        
+        // When on HTTPS tunnel, we can't test HTTP due to Mixed Content restrictions
+        // So we'll just try to connect via WebSocket and see if it works
+        console.log(`🔄 Testing WebSocket connection to local IP (avoiding Mixed Content restrictions)`);
+        
+        localIpDetected = serverLocalIp;
+        bestServerUrl = window.location.origin; // Keep using tunnel for API calls
+        bestWebSocketUrl = `wss://${serverLocalIp}:8442`; // But try local WebSocket
+        console.log(`🔧 Set bestWebSocketUrl to: ${bestWebSocketUrl}`);
+        
+        // We'll let the WebSocket connection itself determine if local works
+        console.log(`🚀 Will attempt local WebSocket, fallback to tunnel if needed`);
         return;
       }
     } catch (error) {
-      // Connection failed, try next IP
-      console.log(`❌ Failed to connect to ${ip}: ${error.message}`);
+      console.log(`❌ Failed to get server local IP: ${error.message}`);
     }
+    
+    // No local connection found, use tunnel
+    console.log('🌐 No local connection found, using tunnel URL');
+    bestServerUrl = window.location.origin;
+    bestWebSocketUrl = `wss://${window.location.hostname}:8442`;
+    console.log(`🔧 Set bestWebSocketUrl to: ${bestWebSocketUrl}`);
+  } finally {
+    detectionInProgress = false;
   }
-  
-  // No local connection found, use tunnel
-  console.log('🌐 No local connection found, using tunnel URL');
-  bestServerUrl = window.location.origin;
-  bestWebSocketUrl = `wss://${hostname}:8442`;
 }
 
 // Smart fetch that uses the best available connection
@@ -514,17 +520,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   
   // Expose best WebSocket URL globally for VR app
   window.bestWebSocketUrl = bestWebSocketUrl;
+  console.log(`🔧 Exposed window.bestWebSocketUrl: ${window.bestWebSocketUrl}`);
   
   // Show connection status to user
   if (localIpDetected) {
-    console.log(`🚀 Using local network connection: ${localIpDetected} (Ultra-low latency)`);
-    // Add visual indicator for local connection
-    showConnectionStatus(`🚀 Local Network (${localIpDetected})`, 'local');
+    console.log(`🚀 Hybrid connection: Tunnel for UI (${window.location.hostname}), Local WebSocket for controls (${localIpDetected})`);
+    // Add visual indicator for hybrid connection
+    showConnectionStatus(`🚀 Hybrid: Local WebSocket (${localIpDetected})`, 'local');
   } else {
     console.log(`🌐 Using tunnel connection (Normal latency)`);
     // Add visual indicator for tunnel connection
     showConnectionStatus('🌐 Tunnel Connection', 'tunnel');
   }
+  
+  // Signal that local IP detection is complete
+  window.localIPDetectionComplete = true;
   
   // Start status monitoring
   updateStatus();
