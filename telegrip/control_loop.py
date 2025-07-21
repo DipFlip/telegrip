@@ -644,10 +644,7 @@ class ControlLoop:
             calibration_complete = self.drawing_manager.add_calibration_point(vr_position, robot_goal_position)
             
             if calibration_complete:
-                logger.info("🎨 Drawing calibration complete! Ready to draw.")
-                
-                # Execute a square drawing as demonstration
-                await self._execute_square_drawing(goal.arm)
+                logger.info("🎨 Plane calibration complete! Ready to draw.")
         
         elif action == "start_drawing_calibration":
             # Start calibration process
@@ -659,6 +656,14 @@ class ControlLoop:
                 await self._execute_plane_drawing(goal.arm)
             else:
                 logger.error("🎨 Plane drawing requires 4-point calibration first")
+        
+        elif action == "svg_drawing":
+            # Execute SVG drawing
+            filename = goal.metadata.get("filename")
+            if self.drawing_manager.is_ready_to_draw():
+                await self._execute_svg_drawing(goal.arm, filename)
+            else:
+                logger.error("🎨 SVG drawing requires 4-point calibration first")
             
     async def _execute_square_drawing(self, arm: str):
         """Just move the goal marker in PyBullet to the 4 saved positions."""
@@ -712,6 +717,60 @@ class ControlLoop:
         except Exception as e:
             logger.error(f"🎨 Error during plane drawing: {e}")
     
+    async def _execute_svg_drawing(self, arm: str, filename: str):
+        """Draw an SVG file on the calibrated plane."""
+        if not self.drawing_manager.is_ready_to_draw():
+            logger.error("Drawing manager not ready - calibration incomplete")
+            return
+        
+        if not filename:
+            logger.error("🎨 No SVG filename provided")
+            return
+            
+        logger.info(f"🎨 Starting SVG drawing: {filename} with {arm} arm...")
+        
+        try:
+            # Import SVG parser
+            from .drawing.svg_parser import SVGParser, SVGToRobotConverter
+            from .utils import get_absolute_path
+            import os
+            
+            # Get full path to SVG file
+            svg_path = get_absolute_path(f"vector_art/{filename}")
+            if not os.path.exists(svg_path):
+                logger.error(f"🎨 SVG file not found: {svg_path}")
+                return
+            
+            # Parse SVG file
+            parser = SVGParser()
+            svg_data = parser.parse_svg_file(svg_path)
+            if not svg_data:
+                logger.error(f"🎨 Failed to parse SVG file: {filename}")
+                return
+            
+            # Calculate plane from 4 calibration points
+            plane_info = self._calculate_drawing_plane()
+            if not plane_info:
+                logger.error("🎨 Could not calculate drawing plane for SVG")
+                return
+            
+            # Convert SVG to robot drawing moves
+            converter = SVGToRobotConverter(plane_info)
+            drawing_moves = converter.convert_svg_to_drawing_moves(svg_data, target_size_cm=2.5)
+            if not drawing_moves:
+                logger.error("🎨 Could not generate drawing moves from SVG")
+                return
+            
+            logger.info(f"🎨 Generated {len(drawing_moves)} moves for SVG: {filename}")
+            
+            # Execute the drawing sequence with smooth animation (no waiting for SVG)
+            asyncio.create_task(self._execute_drawing_moves_sequence(arm, drawing_moves, wait_for_arrival=False))
+            
+        except Exception as e:
+            logger.error(f"🎨 Error during SVG drawing: {e}")
+            import traceback
+            logger.error(f"🎨 Traceback: {traceback.format_exc()}")
+    
     def _calculate_drawing_plane(self):
         """Calculate plane information from 4 calibration points."""
         if len(self.drawing_manager.calibration_points) != 4:
@@ -756,13 +815,15 @@ class ControlLoop:
         
         logger.info(f"🎨 Plane: origin={origin.round(3)}, size={x_length:.3f}x{y_length:.3f}m")
         logger.info(f"🎨 Normal vector: {normal.round(3)}")
+        logger.info(f"🎨 DEBUG: x_axis={x_axis.round(3)}, y_axis={y_axis.round(3)}")
+        logger.info(f"🎨 DEBUG: x_unit={x_unit.round(3)}, y_unit={y_unit.round(3)}")
         
         return plane_info
     
     def _generate_square_drawing_moves(self, plane_info, square_size_cm=3.0):
-        """Generate drawing moves for a square on the plane with pen up/down."""
+        """Generate drawing moves for a smiley face (square outline + eyes + mouth) with pen up/down."""
         square_size_m = square_size_cm / 100.0  # Convert to meters
-        pen_up_height_m = 0.01  # 1cm above plane
+        pen_up_height_m = 0.02  # 2cm above plane for better visibility
         
         # Calculate center of the plane
         center_x = plane_info['x_length'] / 2.0
@@ -787,50 +848,135 @@ class ControlLoop:
             
             # Add pen height if pen is up
             if not pen_down:
-                world_pos += pen_up_height_m * plane_info['normal']
+                pen_offset = pen_up_height_m * plane_info['normal']
+                logger.info(f"🎨 DEBUG: Pen UP - adding offset {pen_offset.round(3)} to base position {world_pos.round(3)}")
+                world_pos += pen_offset
+                logger.info(f"🎨 DEBUG: Final pen UP position: {world_pos.round(3)}")
+            else:
+                logger.info(f"🎨 DEBUG: Pen DOWN - base position: {world_pos.round(3)}")
             
             return world_pos
         
-        # Generate drawing moves with pen up/down
+        # Generate drawing moves for a smiley face: square outline + eyes + mouth
         moves = []
         
+        # 1. Draw the square outline as a continuous line
         for i, (x, y) in enumerate(square_corners_local):
             if i == 0:
-                # First move: go to start position with pen up, then pen down
+                # First corner: go to start position with pen up, then pen down
                 moves.append({
                     'position': local_to_world(x, y, pen_down=False),
-                    'description': f'Move to start (pen up)',
+                    'description': f'Move to start corner (pen up)',
                     'pen_down': False
                 })
                 moves.append({
                     'position': local_to_world(x, y, pen_down=True), 
-                    'description': f'Lower pen to start drawing',
+                    'description': f'Lower pen to start square outline',
                     'pen_down': True
                 })
             else:
-                # Drawing moves: pen down to draw the line
+                # Draw continuous line to each corner
                 moves.append({
                     'position': local_to_world(x, y, pen_down=True),
                     'description': f'Draw to corner {i+1}',
                     'pen_down': True
                 })
         
-        # Final move: lift pen up
-        final_x, final_y = square_corners_local[-1]
+        # Lift pen after completing square outline
         moves.append({
-            'position': local_to_world(final_x, final_y, pen_down=False),
-            'description': 'Lift pen (drawing complete)',
+            'position': local_to_world(square_corners_local[-1][0], square_corners_local[-1][1], pen_down=False),
+            'description': 'Lift pen after square outline',
             'pen_down': False
         })
         
-        logger.info(f"🎨 Generated {len(moves)} moves for {square_size_cm}x{square_size_cm}cm square")
+        # 2. Draw left eye (small dot)
+        left_eye_x = center_x - square_size_m * 0.25  # 1/4 left of center
+        left_eye_y = center_y + square_size_m * 0.15  # Slightly above center, inside square
+        
+        moves.append({
+            'position': local_to_world(left_eye_x, left_eye_y, pen_down=False),
+            'description': 'Move to left eye position (pen up)',
+            'pen_down': False
+        })
+        moves.append({
+            'position': local_to_world(left_eye_x, left_eye_y, pen_down=True),
+            'description': 'Draw left eye dot',
+            'pen_down': True
+        })
+        moves.append({
+            'position': local_to_world(left_eye_x, left_eye_y, pen_down=False),
+            'description': 'Lift pen after left eye',
+            'pen_down': False
+        })
+        
+        # 3. Draw right eye (small dot)  
+        right_eye_x = center_x + square_size_m * 0.25  # 1/4 right of center
+        right_eye_y = center_y + square_size_m * 0.15  # Slightly above center, inside square
+        
+        moves.append({
+            'position': local_to_world(right_eye_x, right_eye_y, pen_down=False),
+            'description': 'Move to right eye position (pen up)',
+            'pen_down': False
+        })
+        moves.append({
+            'position': local_to_world(right_eye_x, right_eye_y, pen_down=True),
+            'description': 'Draw right eye dot',
+            'pen_down': True
+        })
+        moves.append({
+            'position': local_to_world(right_eye_x, right_eye_y, pen_down=False),
+            'description': 'Lift pen after right eye',
+            'pen_down': False
+        })
+        
+        # 4. Draw mouth (small horizontal line)
+        mouth_left_x = center_x - square_size_m * 0.2   # Left side of mouth
+        mouth_right_x = center_x + square_size_m * 0.2  # Right side of mouth
+        mouth_y = center_y - square_size_m * 0.25       # Below center
+        
+        moves.append({
+            'position': local_to_world(mouth_left_x, mouth_y, pen_down=False),
+            'description': 'Move to mouth start (pen up)',
+            'pen_down': False
+        })
+        moves.append({
+            'position': local_to_world(mouth_left_x, mouth_y, pen_down=True),
+            'description': 'Start drawing mouth',
+            'pen_down': True
+        })
+        moves.append({
+            'position': local_to_world(mouth_right_x, mouth_y, pen_down=True),
+            'description': 'Draw mouth line',
+            'pen_down': True
+        })
+        moves.append({
+            'position': local_to_world(mouth_right_x, mouth_y, pen_down=False),
+            'description': 'Lift pen after mouth',
+            'pen_down': False
+        })
+        
+        # 5. Final lift move - go higher to clearly signal completion
+        moves.append({
+            'position': local_to_world(center_x, center_y, pen_down=False),
+            'description': 'Final lift to center (smiley face complete)',
+            'pen_down': False
+        })
+        
+        logger.info(f"🎨 Generated {len(moves)} moves for {square_size_cm}x{square_size_cm}cm smiley face")
         for i, move in enumerate(moves):
             logger.info(f"🎨   {i+1}. {move['description']}: {move['position'].round(3)}")
         
         return moves
     
-    async def _execute_drawing_moves_sequence(self, arm: str, drawing_moves):
-        """Execute the drawing moves with smooth animation and proper timing."""
+    async def _execute_drawing_moves_sequence(self, arm: str, drawing_moves, wait_for_arrival: bool = True):
+        """Execute the drawing moves with smooth animation and proper timing.
+        
+        Args:
+            arm: Which arm to use ('left' or 'right')
+            drawing_moves: List of moves to execute
+            wait_for_arrival: If True, wait for arm to reach each position before continuing.
+                            If False, move target continuously for smooth drawing.
+        """
         arm_state = self.left_arm if arm == "left" else self.right_arm
         
         logger.info(f"🎨 Starting drawing sequence for {arm} arm...")
@@ -876,8 +1022,8 @@ class ControlLoop:
                 
                 logger.info(f"🎨 Reached: {target_pos.round(3)}")
                 
-                # Wait for robot arm to reach the position (within 0.5cm)
-                if self.robot_interface and i < len(drawing_moves) - 1:
+                # Wait for robot arm to reach the position (only if wait_for_arrival is True)
+                if wait_for_arrival and self.robot_interface and i < len(drawing_moves) - 1:
                     logger.info(f"🎨 Waiting for arm to reach position...")
                     timeout = 10.0
                     start_time = time.time()
@@ -893,8 +1039,10 @@ class ControlLoop:
                         await asyncio.sleep(0.1)
                     else:
                         logger.warning(f"🎨 Timeout waiting for arm")
+                elif not wait_for_arrival:
+                    logger.debug(f"🎨 Continuous mode: not waiting for arm to reach position")
             
-            logger.info("🎨 Plane drawing sequence complete!")
+            logger.info("🎨 Drawing sequence complete!")
             
         except Exception as e:
             logger.error(f"🎨 Error during drawing sequence: {e}")

@@ -132,11 +132,19 @@
               <span id="engageBtnText">🔌 Connect Robot</span>
             </button>
             <button id="drawingBtn" class="drawing-btn" onclick="startDrawingCalibration()">
-              <span id="drawingBtnText">🎨 Start Drawing</span>
+              <span id="drawingBtnText">📐 Define Plane</span>
             </button>
             <button id="planeDrawingBtn" class="plane-drawing-btn" onclick="startPlaneDrawing()">
-              <span>📐 Draw 3x3cm Square</span>
+              <span>😊 Draw 3x3cm Smiley Face</span>
             </button>
+            <div class="svg-drawing-container">
+              <select id="svgFileSelect" class="svg-file-select">
+                <option value="">Loading SVG files...</option>
+              </select>
+              <button id="svgDrawBtn" class="svg-draw-btn" onclick="startSvgDrawing()">
+                <span>🎨 Draw SVG</span>
+              </button>
+            </div>
             <button id="testMoveBtn" class="test-move-btn" onclick="testMove()">
               <span>🎬 Animate 5cm Left</span>
             </button>
@@ -170,7 +178,7 @@
                 <strong>Trigger Button:</strong> The gripper stays closed while you hold the trigger button. Release the trigger button to open the gripper.
               </div>
               <div class="instruction-item">
-                <strong>A Button (Drawing):</strong> Press A button on 4 corners to define drawing area, then robot will draw a square automatically.
+                <strong>A Button (Plane Setup):</strong> Press A button on 4 corners to define your drawing plane, then use other buttons to draw shapes.
               </div>
             </div>
           </div>

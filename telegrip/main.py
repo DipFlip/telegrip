@@ -117,6 +117,8 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
             self.handle_status_request()
         elif self.path == '/api/config':
             self.handle_config_get_request()
+        elif self.path == '/api/svg_files':
+            self.handle_svg_files_request()
         elif self.path == '/' or self.path == '/index.html':
             # Serve main page from web-ui directory
             self.serve_file('web-ui/index.html', 'text/html')
@@ -156,6 +158,10 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
             self.handle_drawing_request()
         elif self.path == '/api/test_move':
             self.handle_test_move_request()
+        elif self.path == '/api/svg_files':
+            self.handle_svg_files_request()
+        elif self.path == '/api/svg_draw':
+            self.handle_svg_draw_request()
         else:
             self.send_error(404, "Not found")
     
@@ -508,6 +514,86 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(400, "Invalid JSON")
         except Exception as e:
             logger.error(f"Error handling test move request: {e}")
+            self.send_error(500, str(e))
+    
+    def handle_svg_files_request(self):
+        """Handle requests for listing SVG files."""
+        try:
+            from .utils import get_absolute_path
+            import os
+            
+            # Get absolute path to vector_art directory
+            vector_art_dir = get_absolute_path("vector_art")
+            
+            svg_files = []
+            if os.path.exists(vector_art_dir):
+                for filename in os.listdir(vector_art_dir):
+                    if filename.lower().endswith('.svg'):
+                        svg_files.append(filename)
+            
+            svg_files.sort()  # Sort alphabetically
+            
+            # Send JSON response
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            
+            response = json.dumps({"svg_files": svg_files})
+            self.wfile.write(response.encode('utf-8'))
+            
+        except Exception as e:
+            logger.error(f"Error handling SVG files request: {e}")
+            self.send_error(500, str(e))
+    
+    def handle_svg_draw_request(self):
+        """Handle SVG drawing requests."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self.send_error(400, "No request body")
+                return
+            
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            filename = data.get('filename')
+            arm = data.get('arm', 'right')
+            
+            if not filename:
+                self.send_error(400, "No filename specified")
+                return
+            
+            logger.info(f"🎨 Received SVG draw request: {filename} for {arm} arm")
+            
+            # Send SVG drawing command to control loop
+            if hasattr(self.server, 'api_handler') and self.server.api_handler:
+                from .inputs.base import ControlGoal
+                svg_goal = ControlGoal(
+                    arm=arm,
+                    metadata={
+                        "source": "web_ui",
+                        "action": "svg_drawing",
+                        "filename": filename
+                    }
+                )
+                
+                # Add to command queue
+                self.server.api_handler.command_queue.put_nowait(svg_goal)
+                
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": True, "filename": filename, "arm": arm}).encode('utf-8'))
+                
+                logger.info(f"🎨 SVG drawing started for {arm} arm: {filename}")
+            else:
+                logger.error("🎨 Server api_handler not available")
+                self.send_error(500, "System not available")
+                
+        except json.JSONDecodeError:
+            self.send_error(400, "Invalid JSON")
+        except Exception as e:
+            logger.error(f"Error handling SVG draw request: {e}")
             self.send_error(500, str(e))
     
     def serve_file(self, filename, content_type):

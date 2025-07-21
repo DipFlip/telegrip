@@ -248,13 +248,80 @@ function startDrawingCalibration() {
     if (data.success) {
       isDrawingCalibrating = true;
       updateDrawingUI();
-      alert('Drawing calibration started! Use VR right controller and press A button on 4 corners of your drawing area.');
+      alert('Plane calibration started! Use VR right controller and press A button on 4 corners to define your drawing plane.');
     } else {
       alert('Failed to start drawing calibration: ' + (data.error || 'Unknown error'));
     }
   })
   .catch(error => {
     console.error('Error starting drawing calibration:', error);
+    alert('Error communicating with server');
+  });
+}
+
+// Load SVG files for dropdown
+function loadSvgFiles() {
+  fetch('/api/svg_files')
+    .then(response => response.json())
+    .then(data => {
+      const select = document.getElementById('svgFileSelect');
+      select.innerHTML = '';
+      
+      if (data.svg_files && data.svg_files.length > 0) {
+        // Add default option
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Select an SVG file...';
+        select.appendChild(defaultOption);
+        
+        // Add SVG files
+        data.svg_files.forEach(filename => {
+          const option = document.createElement('option');
+          option.value = filename;
+          option.textContent = filename;
+          select.appendChild(option);
+        });
+      } else {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'No SVG files found';
+        select.appendChild(option);
+      }
+    })
+    .catch(error => {
+      console.error('Error loading SVG files:', error);
+      const select = document.getElementById('svgFileSelect');
+      select.innerHTML = '<option value="">Error loading files</option>';
+    });
+}
+
+// Start SVG drawing
+function startSvgDrawing() {
+  const select = document.getElementById('svgFileSelect');
+  const filename = select.value;
+  
+  if (!filename) {
+    alert('Please select an SVG file to draw.');
+    return;
+  }
+  
+  fetch('/api/svg_draw', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ filename: filename, arm: 'right' })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      alert(`SVG drawing started! Drawing ${filename} on calibrated plane.`);
+    } else {
+      alert('Failed to start SVG drawing: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(error => {
+    console.error('Error starting SVG drawing:', error);
     alert('Error communicating with server');
   });
 }
@@ -271,7 +338,7 @@ function startPlaneDrawing() {
   .then(response => response.json())
   .then(data => {
     if (data.success) {
-      alert('Plane drawing started! Drawing 3x3cm square on calibrated plane with pen up/down moves.');
+      alert('Smiley face drawing started! Drawing 3x3cm smiley face on calibrated plane with pen up/down moves.');
     } else {
       alert('Failed to start plane drawing: ' + (data.error || 'Unknown error'));
     }
@@ -290,13 +357,13 @@ function updateDrawingUI() {
   
   if (isDrawingCalibrating) {
     drawingBtn.disabled = true;
-    drawingBtnText.textContent = '🎨 Calibrating...';
+    drawingBtnText.textContent = '📐 Calibrating...';
     drawingStatusText.textContent = 'Press A button on 4 corners';
     drawingStatusText.style.color = '#ffcc00';
   } else {
     drawingBtn.disabled = false;
-    drawingBtnText.textContent = '🎨 Start Drawing';
-    drawingStatusText.textContent = 'Ready for Drawing Calibration';
+    drawingBtnText.textContent = '📐 Define Plane';
+    drawingStatusText.textContent = 'Ready for Plane Calibration';
     drawingStatusText.style.color = '#FFFFFF';
   }
 }
@@ -483,6 +550,9 @@ function sendKeyCommand(keyCode, action) {
 // Initialize
 document.addEventListener('DOMContentLoaded', () => {
   updateUIForDevice();
+  
+  // Load SVG files for dropdown
+  loadSvgFiles();
   
   // Start status monitoring
   updateStatus();

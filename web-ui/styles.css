@@ -437,6 +437,60 @@ a-scene {
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0,0,0,0.2);
 }
+
+.svg-drawing-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0.5rem;
+  justify-content: center;
+}
+
+.svg-file-select {
+  background: linear-gradient(45deg, #607D8B, #455A64);
+  border: none;
+  color: white;
+  padding: 12px 16px;
+  font-size: 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 160px;
+}
+
+.svg-file-select:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.svg-file-select option {
+  background: #455A64;
+  color: white;
+}
+
+.svg-draw-btn {
+  background: linear-gradient(45deg, #E91E63, #C2185B);
+  border: none;
+  color: white;
+  padding: 12px 24px;
+  font-size: 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 0;
+  min-width: 120px;
+}
+
+.svg-draw-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+.svg-draw-btn:disabled {
+  background: linear-gradient(45deg, #9E9E9E, #757575);
+  cursor: not-allowed;
+  transform: none;
+}
 .test-move-btn {
   background: linear-gradient(45deg, #2196F3, #1976D2);
   border: none;
