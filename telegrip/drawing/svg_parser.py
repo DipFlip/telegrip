@@ -95,14 +95,35 @@ class SVGParser:
                 points.append(self.current_pos.copy())
                 i += 2
                 
+                # After M command, subsequent coordinate pairs are implicit line commands
+                while i + 1 < len(tokens):
+                    try:
+                        # Try to parse two more numbers as coordinates
+                        x, y = float(tokens[i]), float(tokens[i+1])
+                        if command.islower():  # Relative to original move
+                            self.current_pos += np.array([x, y])
+                        else:  # Absolute
+                            self.current_pos = np.array([x, y])
+                        points.append(self.current_pos.copy())
+                        i += 2
+                    except (ValueError, IndexError):
+                        # Next token is not a coordinate pair, break to process as command
+                        break
+                
             elif command.upper() == 'L':  # Line to
-                x, y = float(tokens[i]), float(tokens[i+1])
-                if command.islower():  # Relative
-                    self.current_pos += np.array([x, y])
-                else:  # Absolute
-                    self.current_pos = np.array([x, y])
-                points.append(self.current_pos.copy())
-                i += 2
+                # L command can have multiple coordinate pairs
+                while i + 1 < len(tokens):
+                    try:
+                        x, y = float(tokens[i]), float(tokens[i+1])
+                        if command.islower():  # Relative
+                            self.current_pos += np.array([x, y])
+                        else:  # Absolute
+                            self.current_pos = np.array([x, y])
+                        points.append(self.current_pos.copy())
+                        i += 2
+                    except (ValueError, IndexError):
+                        # Next token is not a coordinate pair, break to process as command
+                        break
                 
             elif command.upper() == 'C':  # Cubic Bézier curve
                 # Cubic Bézier can have multiple sets of 6 parameters
@@ -126,6 +147,7 @@ class SVGParser:
                         curve_points = self._bezier_to_points(self.current_pos, cp1, cp2, end_point)
                         points.extend(curve_points[1:])  # Skip first point (already have it)
                         
+                        logger.debug(f"Parsed Bézier curve from {self.current_pos.round(1)} to {end_point.round(1)} with {len(curve_points)} points")
                         self.current_pos = end_point
                         i += 6
                         

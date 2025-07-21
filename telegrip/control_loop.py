@@ -754,9 +754,9 @@ class ControlLoop:
                 logger.error("🎨 Could not calculate drawing plane for SVG")
                 return
             
-            # Convert SVG to robot drawing moves
+            # Convert SVG to robot drawing moves (make it bigger for better visibility)
             converter = SVGToRobotConverter(plane_info)
-            drawing_moves = converter.convert_svg_to_drawing_moves(svg_data, target_size_cm=2.5)
+            drawing_moves = converter.convert_svg_to_drawing_moves(svg_data, target_size_cm=5.0)
             if not drawing_moves:
                 logger.error("🎨 Could not generate drawing moves from SVG")
                 return
@@ -987,6 +987,7 @@ class ControlLoop:
             for i, move in enumerate(drawing_moves):
                 logger.info(f"🎨 Move {i+1}/{len(drawing_moves)}: {move['description']}")
                 target_pos = move['position']
+                logger.info(f"🎨 Target position: {target_pos.round(3)}")
                 
                 # Get current goal position as starting point
                 if arm_state.goal_position is not None:
@@ -994,9 +995,9 @@ class ControlLoop:
                 else:
                     start_pos = self.robot_interface.get_current_end_effector_position(arm) if self.robot_interface else target_pos
                 
-                # Calculate distance and movement time at 2cm/s
+                # Calculate distance and movement time at 3cm/s
                 distance = np.linalg.norm(target_pos - start_pos)
-                speed = 0.02  # 2 cm/s
+                speed = 0.03  # 3 cm/s
                 total_duration = distance / speed if speed > 0 else 1.0
                 
                 logger.info(f"🎨 Distance: {distance:.3f}m, Duration: {total_duration:.1f}s")
@@ -1020,7 +1021,7 @@ class ControlLoop:
                     if step < num_steps:
                         await asyncio.sleep(dt)
                 
-                logger.info(f"🎨 Reached: {target_pos.round(3)}")
+                logger.info(f"🎨 Reached: {target_pos.round(3)} (Move {i+1}/{len(drawing_moves)} complete)")
                 
                 # Wait for robot arm to reach the position (only if wait_for_arrival is True)
                 if wait_for_arrival and self.robot_interface and i < len(drawing_moves) - 1:
