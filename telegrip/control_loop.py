@@ -677,31 +677,74 @@ class ControlLoop:
         asyncio.create_task(self._move_goal_marker_sequence(arm, saved_positions))
         
     async def _move_goal_marker_sequence(self, arm: str, saved_positions):
-        """Just move the goal marker in PyBullet to each saved position with delays."""
+        """Move the goal marker smoothly at 2cm/s and wait for arm to reach each position."""
         arm_state = self.left_arm if arm == "left" else self.right_arm
         
-        logger.info(f"🎨 Starting goal marker movement for {arm} arm...")
+        logger.info(f"🎨 Starting smooth goal marker movement for {arm} arm...")
         
         try:
-            # Move goal marker to each saved position
+            # Move goal marker to each saved position smoothly
             for i, target_pos in enumerate(saved_positions):
-                logger.info(f"🎨 Moving goal marker to point {i+1}/4: {target_pos.round(3)}")
+                logger.info(f"🎨 Moving to point {i+1}/4: {target_pos.round(3)}")
                 
-                # Just update the goal position directly - this should move the marker in PyBullet
-                arm_state.goal_position = target_pos.copy()
-                arm_state.target_position = target_pos.copy()
-                arm_state.mode = ControlMode.POSITION_CONTROL
+                # Get current goal position as starting point
+                if arm_state.goal_position is not None:
+                    start_pos = arm_state.goal_position.copy()
+                else:
+                    # If no goal position set yet, use current robot position
+                    start_pos = self.robot_interface.get_current_end_effector_position(arm) if self.robot_interface else target_pos
                 
-                logger.info(f"🎨 Goal marker moved to: {target_pos.round(3)}")
+                # Calculate distance and movement time at 2cm/s
+                distance = np.linalg.norm(target_pos - start_pos)
+                speed = 0.05  # 5 cm/s
+                total_duration = distance / speed if speed > 0 else 1.0
                 
-                # Wait before moving to next position
-                if i < len(saved_positions) - 1:  # Don't wait after last move
-                    await asyncio.sleep(3.0)  # 3 seconds between moves
+                logger.info(f"🎨 Distance: {distance:.3f}m, Duration: {total_duration:.1f}s at {speed:.3f}m/s")
+                
+                # Smooth interpolation
+                control_frequency = 50.0  # 50Hz updates
+                num_steps = max(10, int(total_duration * control_frequency))
+                dt = total_duration / num_steps
+                
+                # Animate the goal position smoothly
+                for step in range(num_steps + 1):
+                    # Smooth interpolation with ease-in-out
+                    t_linear = step / num_steps  # 0 to 1
+                    t_smooth = 0.5 * (1 - np.cos(np.pi * t_linear))  # S-curve
+                    current_goal = start_pos + t_smooth * (target_pos - start_pos)
+                    
+                    # Update goal position
+                    arm_state.goal_position = current_goal.copy()
+                    arm_state.target_position = current_goal.copy()
+                    arm_state.mode = ControlMode.POSITION_CONTROL
+                    
+                    if step < num_steps:  # Don't wait after last step
+                        await asyncio.sleep(dt)
+                
+                logger.info(f"🎨 Goal reached: {target_pos.round(3)}")
+                
+                # Wait for robot arm to actually reach the position (within 0.5cm)
+                if self.robot_interface and i < len(saved_positions) - 1:  # Don't wait after last move
+                    logger.info(f"🎨 Waiting for arm to reach position within 0.5cm...")
+                    timeout = 10.0  # 10 second timeout
+                    start_time = time.time()
+                    
+                    while time.time() - start_time < timeout:
+                        current_robot_pos = self.robot_interface.get_current_end_effector_position(arm)
+                        distance_to_goal = np.linalg.norm(current_robot_pos - target_pos)
+                        
+                        if distance_to_goal <= 0.005:  # 0.5cm
+                            logger.info(f"🎨 Arm reached position! Distance: {distance_to_goal*1000:.1f}mm")
+                            break
+                        
+                        await asyncio.sleep(0.1)  # Check every 100ms
+                    else:
+                        logger.warning(f"🎨 Timeout waiting for arm to reach position")
             
-            logger.info("🎨 Goal marker sequence complete!")
+            logger.info("🎨 Smooth goal marker sequence complete!")
             
         except Exception as e:
-            logger.error(f"🎨 Error during goal marker movement: {e}")
+            logger.error(f"🎨 Error during smooth goal marker movement: {e}")
         
     async def _initialize_drawing_mode(self, arm: str):
         """Initialize drawing mode like VR grip activation."""
