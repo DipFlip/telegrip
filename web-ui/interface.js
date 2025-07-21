@@ -226,6 +226,58 @@ function toggleRobotEngagement() {
   });
 }
 
+// Drawing state
+let isDrawingCalibrating = false;
+
+// Start drawing calibration
+function startDrawingCalibration() {
+  if (isDrawingCalibrating) {
+    alert('Drawing calibration already in progress');
+    return;
+  }
+  
+  fetch('/api/drawing', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ action: 'start_calibration', arm: 'right' })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      isDrawingCalibrating = true;
+      updateDrawingUI();
+      alert('Drawing calibration started! Use VR right controller and press A button on 4 corners of your drawing area.');
+    } else {
+      alert('Failed to start drawing calibration: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(error => {
+    console.error('Error starting drawing calibration:', error);
+    alert('Error communicating with server');
+  });
+}
+
+// Update drawing UI
+function updateDrawingUI() {
+  const drawingBtn = document.getElementById('drawingBtn');
+  const drawingBtnText = document.getElementById('drawingBtnText');
+  const drawingStatusText = document.getElementById('drawingStatusText');
+  
+  if (isDrawingCalibrating) {
+    drawingBtn.disabled = true;
+    drawingBtnText.textContent = '🎨 Calibrating...';
+    drawingStatusText.textContent = 'Press A button on 4 corners';
+    drawingStatusText.style.color = '#ffcc00';
+  } else {
+    drawingBtn.disabled = false;
+    drawingBtnText.textContent = '🎨 Start Drawing';
+    drawingStatusText.textContent = 'Ready for Drawing Calibration';
+    drawingStatusText.style.color = '#FFFFFF';
+  }
+}
+
 // Toggle keyboard control
 function toggleKeyboardControl() {
   const action = isKeyboardEnabled ? 'disable' : 'enable';

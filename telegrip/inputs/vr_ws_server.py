@@ -27,6 +27,7 @@ class VRControllerState:
         self.hand = hand
         self.grip_active = False
         self.trigger_active = False
+        self.a_button_active = False
         
         # Position tracking for relative movement
         self.origin_position = None
@@ -202,6 +203,7 @@ class VRWebSocketServer(BaseInputProvider):
         quaternion = data.get('quaternion', {})  # Get quaternion data directly
         grip_active = data.get('gripActive', False)
         trigger = data.get('trigger', 0)
+        a_button = data.get('aButton', False)
         
         controller = self.left_controller if hand == 'left' else self.right_controller
         
@@ -220,6 +222,23 @@ class VRWebSocketServer(BaseInputProvider):
             await self.send_goal(gripper_goal)
             
             logger.info(f"🤏 {hand.upper()} gripper {'OPENED' if trigger_active else 'CLOSED'}")
+        
+        # Handle A button for drawing calibration
+        if a_button != controller.a_button_active:
+            controller.a_button_active = a_button
+            if a_button:
+                # A button pressed - send drawing calibration point
+                drawing_goal = ControlGoal(
+                    arm=hand,
+                    metadata={
+                        "source": "vr_a_button",
+                        "action": "drawing_calibration_point",
+                        "position": position.copy(),
+                        "timestamp": asyncio.get_event_loop().time()
+                    }
+                )
+                await self.send_goal(drawing_goal)
+                logger.info(f"🎨 {hand.upper()} A button pressed - drawing calibration point recorded")
         
         # Handle grip button for arm movement control
         if grip_active:

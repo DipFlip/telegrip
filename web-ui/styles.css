@@ -399,10 +399,38 @@ a-scene {
   background: linear-gradient(45deg, #f44336, #d32f2f);
 }
 
+.drawing-btn {
+  background: linear-gradient(45deg, #FF9800, #F57C00);
+  border: none;
+  color: white;
+  padding: 12px 24px;
+  font-size: 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 0.5rem;
+  margin-left: 10px;
+  min-width: 160px;
+}
+.drawing-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+.drawing-btn:disabled {
+  background: linear-gradient(45deg, #9E9E9E, #757575);
+  cursor: not-allowed;
+  transform: none;
+}
 .engagement-status {
   font-size: 14px;
   color: white;
   font-style: italic;
+}
+.drawing-status {
+  font-size: 14px;
+  color: white;
+  font-style: italic;
+  margin-top: 0.5rem;
 }
 
 .control-section {

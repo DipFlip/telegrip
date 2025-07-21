@@ -16,6 +16,8 @@ AFRAME.registerComponent('controller-updater', {
     this.rightGripDown = false;
     this.leftTriggerDown = false;
     this.rightTriggerDown = false;
+    this.leftAButtonDown = false;
+    this.rightAButtonDown = false;
 
     // --- Status reporting ---
     this.lastStatusUpdate = 0;
@@ -131,6 +133,18 @@ AFRAME.registerComponent('controller-updater', {
       }
     };
 
+    // --- Helper function to send A button press/release message ---
+    this.sendAButton = (hand, pressed) => {
+      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
+        const aButtonMessage = {
+          hand: hand,
+          aButtonPressed: pressed
+        };
+        this.websocket.send(JSON.stringify(aButtonMessage));
+        console.log(`Sent A button ${pressed ? 'press' : 'release'} for ${hand} hand`);
+      }
+    };
+
     // --- Helper function to calculate relative rotation ---
     this.calculateRelativeRotation = (currentRotation, initialRotation) => {
       return {
@@ -222,6 +236,16 @@ AFRAME.registerComponent('controller-updater', {
         this.leftZAxisRotation = 0; // Reset Z-axis rotation
         this.sendGripRelease('left'); // Send grip release message
     });
+    this.leftHand.addEventListener('abuttondown', (evt) => {
+        console.log('Left A Button Pressed');
+        this.leftAButtonDown = true;
+        this.sendAButton('left', true);
+    });
+    this.leftHand.addEventListener('abuttonup', (evt) => {
+        console.log('Left A Button Released');
+        this.leftAButtonDown = false;
+        this.sendAButton('left', false);
+    });
 
     this.rightHand.addEventListener('triggerdown', (evt) => {
         console.log('Right Trigger Pressed');
@@ -260,6 +284,16 @@ AFRAME.registerComponent('controller-updater', {
         this.rightRelativeRotation = { x: 0, y: 0, z: 0 }; // Reset relative rotation
         this.rightZAxisRotation = 0; // Reset Z-axis rotation
         this.sendGripRelease('right'); // Send grip release message
+    });
+    this.rightHand.addEventListener('abuttondown', (evt) => {
+        console.log('Right A Button Pressed');
+        this.rightAButtonDown = true;
+        this.sendAButton('right', true);
+    });
+    this.rightHand.addEventListener('abuttonup', (evt) => {
+        console.log('Right A Button Released');
+        this.rightAButtonDown = false;
+        this.sendAButton('right', false);
     });
     // --- End Modify Event Listeners ---
 
@@ -404,7 +438,8 @@ AFRAME.registerComponent('controller-updater', {
         position: null,
         rotation: null,
         gripActive: false,
-        trigger: 0
+        trigger: 0,
+        aButton: false
     };
     
     const rightController = {
@@ -412,7 +447,8 @@ AFRAME.registerComponent('controller-updater', {
         position: null,
         rotation: null,
         gripActive: false,
-        trigger: 0
+        trigger: 0,
+        aButton: false
     };
 
     // Update Left Hand Text & Collect Data
@@ -464,6 +500,7 @@ AFRAME.registerComponent('controller-updater', {
         };
         leftController.trigger = this.leftTriggerDown ? 1 : 0;
         leftController.gripActive = this.leftGripDown;
+        leftController.aButton = this.leftAButtonDown;
     }
 
     // Update Right Hand Text & Collect Data
@@ -515,6 +552,7 @@ AFRAME.registerComponent('controller-updater', {
         };
         rightController.trigger = this.rightTriggerDown ? 1 : 0;
         rightController.gripActive = this.rightGripDown;
+        rightController.aButton = this.rightAButtonDown;
     }
 
     // Send combined packet if WebSocket is open and at least one controller has valid data

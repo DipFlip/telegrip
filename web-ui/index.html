@@ -131,8 +131,14 @@
             <button id="robotEngageBtn" class="engage-btn" onclick="toggleRobotEngagement()">
               <span id="engageBtnText">🔌 Connect Robot</span>
             </button>
+            <button id="drawingBtn" class="drawing-btn" onclick="startDrawingCalibration()">
+              <span id="drawingBtnText">🎨 Start Drawing</span>
+            </button>
             <div class="engagement-status">
               <span id="engagementStatusText">Motors Disengaged</span>
+            </div>
+            <div class="drawing-status">
+              <span id="drawingStatusText">Ready for Drawing Calibration</span>
             </div>
           </div>
         </div>
@@ -156,6 +162,9 @@
               </div>
               <div class="instruction-item">
                 <strong>Trigger Button:</strong> The gripper stays closed while you hold the trigger button. Release the trigger button to open the gripper.
+              </div>
+              <div class="instruction-item">
+                <strong>A Button (Drawing):</strong> Press A button on 4 corners to define drawing area, then robot will draw a square automatically.
               </div>
             </div>
           </div>

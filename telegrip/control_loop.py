@@ -14,6 +14,7 @@ from .config import TelegripConfig, NUM_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_IND
 from .core.robot_interface import RobotInterface
 # PyBulletVisualizer will be imported on demand
 from .inputs.base import ControlGoal, ControlMode
+from .drawing.drawing_manager import DrawingManager
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,9 @@ class ControlLoop:
         # Arm states
         self.left_arm = ArmState("left")
         self.right_arm = ArmState("right")
+        
+        # Drawing manager
+        self.drawing_manager = DrawingManager()
         
         # Control timing
         self.last_log_time = 0
@@ -426,6 +430,10 @@ class ControlLoop:
                     # Absolute wrist flex (legacy)
                     arm_state.current_wrist_flex = goal.wrist_flex_deg
         
+        # Handle drawing commands
+        if goal.metadata and (goal.metadata.get("source") == "vr_a_button" or goal.metadata.get("source") == "web_ui"):
+            await self._handle_drawing_command(goal)
+        
         # Handle gripper control (independent of mode)
         if goal.gripper_closed is not None and self.robot_interface:
             self.robot_interface.set_gripper(goal.arm, goal.gripper_closed)
@@ -548,6 +556,78 @@ class ControlLoop:
                 left_angles = self.robot_interface.get_arm_angles("left")
                 right_angles = self.robot_interface.get_arm_angles("right")
                 logger.info(f"🤖 Active control: {', '.join(active_arms)} | Left: {left_angles.round(1)} | Right: {right_angles.round(1)}")
+    
+    async def _handle_drawing_command(self, goal: ControlGoal):
+        """Handle drawing-related commands from VR A button."""
+        if not goal.metadata:
+            return
+            
+        action = goal.metadata.get("action")
+        
+        if action == "drawing_calibration_point":
+            # Get current robot position for this arm
+            robot_position = None
+            if self.robot_interface:
+                robot_position = self.robot_interface.get_current_end_effector_position(goal.arm)
+            
+            # Add calibration point
+            vr_position = goal.metadata.get("position", {})
+            calibration_complete = self.drawing_manager.add_calibration_point(vr_position, robot_position)
+            
+            if calibration_complete:
+                logger.info("🎨 Drawing calibration complete! Ready to draw.")
+                
+                # Execute a square drawing as demonstration
+                await self._execute_square_drawing(goal.arm)
+        
+        elif action == "start_drawing_calibration":
+            # Start calibration process
+            self.drawing_manager.start_calibration(goal.arm)
+            
+    async def _execute_square_drawing(self, arm: str):
+        """Execute a square drawing on the calibrated plane."""
+        if not self.drawing_manager.is_ready_to_draw():
+            logger.error("Drawing manager not ready - calibration incomplete")
+            return
+            
+        logger.info(f"🎨 Starting square drawing with {arm} arm...")
+        
+        # Generate square path
+        square_points = self.drawing_manager.generate_square_path(size=0.6)
+        
+        # Convert to robot coordinates and execute
+        for i, point in enumerate(square_points):
+            # Determine pen state (down for drawing, up for moves)
+            pen_down = i > 0  # Pen up for first move to start position, down for drawing
+            
+            # Convert to robot coordinates
+            robot_position = self.drawing_manager.drawing_to_robot_coordinates(point, pen_down)
+            
+            if robot_position is not None:
+                # Create movement goal
+                movement_goal = ControlGoal(
+                    arm=arm,
+                    mode=ControlMode.POSITION_CONTROL,
+                    target_position=robot_position,
+                    metadata={
+                        "source": "drawing_execution",
+                        "drawing_point": i,
+                        "pen_down": pen_down
+                    }
+                )
+                
+                # Set arm to position control mode and execute movement
+                arm_state = self.left_arm if arm == "left" else self.right_arm
+                arm_state.mode = ControlMode.POSITION_CONTROL
+                arm_state.target_position = robot_position.copy()
+                arm_state.goal_position = robot_position.copy()
+                
+                logger.info(f"🎨 Drawing point {i+1}/{len(square_points)} - {'pen down' if pen_down else 'pen up'}")
+                
+                # Wait for movement to complete (simple time-based for now)
+                await asyncio.sleep(1.0)
+        
+        logger.info("🎨 Square drawing complete!")
     
     @property
     def status(self) -> Dict:

@@ -151,6 +151,8 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
             self.handle_config_post_request()
         elif self.path == '/api/restart':
             self.handle_restart_request()
+        elif self.path == '/api/drawing':
+            self.handle_drawing_request()
         else:
             self.send_error(404, "Not found")
     
@@ -374,6 +376,55 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
                 
         except Exception as e:
             logger.error(f"Error handling restart request: {e}")
+            self.send_error(500, str(e))
+    
+    def handle_drawing_request(self):
+        """Handle drawing control requests."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length == 0:
+                self.send_error(400, "No request body")
+                return
+            
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            action = data.get('action')
+            arm = data.get('arm', 'right')
+            logger.info(f"🎨 Received drawing action: {action} for {arm} arm")
+            
+            if action == 'start_calibration':
+                # Send drawing calibration command to control loop
+                if hasattr(self.server, 'api_handler') and self.server.api_handler:
+                    # Create drawing command for the command queue
+                    from .inputs.base import ControlGoal
+                    drawing_goal = ControlGoal(
+                        arm=arm,
+                        metadata={
+                            "source": "web_ui",
+                            "action": "start_drawing_calibration"
+                        }
+                    )
+                    
+                    # Add to command queue
+                    self.server.api_handler.command_queue.put_nowait(drawing_goal)
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": True, "action": action, "arm": arm}).encode('utf-8'))
+                    
+                    logger.info(f"🎨 Drawing calibration started for {arm} arm")
+                else:
+                    logger.error("🎨 Server api_handler not available")
+                    self.send_error(500, "System not available")
+            else:
+                self.send_error(400, f"Invalid drawing action: {action}")
+                
+        except json.JSONDecodeError:
+            self.send_error(400, "Invalid JSON")
+        except Exception as e:
+            logger.error(f"Error handling drawing request: {e}")
             self.send_error(500, str(e))
     
     def serve_file(self, filename, content_type):
