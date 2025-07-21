@@ -13,8 +13,8 @@ import contextlib
 from typing import Optional, Dict, Tuple
 
 # New lerobot structure imports
-from lerobot.common.robots.so100_follower.config_so100_follower import SO100FollowerConfig
-from lerobot.common.robots.so100_follower.so100_follower import SO100Follower
+from lerobot.robots.so100_follower.config_so100_follower import SO100FollowerConfig
+from lerobot.robots.so100_follower.so100_follower import SO100Follower
 
 from ..config import (
     TelegripConfig, NUM_JOINTS, JOINT_NAMES,
