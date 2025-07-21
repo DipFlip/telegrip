@@ -259,6 +259,29 @@ function startDrawingCalibration() {
   });
 }
 
+// Start plane drawing (3x3cm square on calibrated plane)
+function startPlaneDrawing() {
+  fetch('/api/drawing', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ action: 'plane_drawing', arm: 'right' })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      alert('Plane drawing started! Drawing 3x3cm square on calibrated plane with pen up/down moves.');
+    } else {
+      alert('Failed to start plane drawing: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(error => {
+    console.error('Error starting plane drawing:', error);
+    alert('Error communicating with server');
+  });
+}
+
 // Update drawing UI
 function updateDrawingUI() {
   const drawingBtn = document.getElementById('drawingBtn');

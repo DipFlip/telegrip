@@ -421,6 +421,33 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
                 else:
                     logger.error("🎨 Server api_handler not available")
                     self.send_error(500, "System not available")
+            
+            elif action == 'plane_drawing':
+                # Send plane drawing command to control loop
+                if hasattr(self.server, 'api_handler') and self.server.api_handler:
+                    # Create plane drawing command for the command queue
+                    from .inputs.base import ControlGoal
+                    drawing_goal = ControlGoal(
+                        arm=arm,
+                        metadata={
+                            "source": "web_ui",
+                            "action": "plane_drawing"
+                        }
+                    )
+                    
+                    # Add to command queue
+                    self.server.api_handler.command_queue.put_nowait(drawing_goal)
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"success": True, "action": action, "arm": arm}).encode('utf-8'))
+                    
+                    logger.info(f"🎨 Plane drawing started for {arm} arm")
+                else:
+                    logger.error("🎨 Server api_handler not available")
+                    self.send_error(500, "System not available")
+            
             else:
                 self.send_error(400, f"Invalid drawing action: {action}")
                 

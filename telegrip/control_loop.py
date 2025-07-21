@@ -652,6 +652,13 @@ class ControlLoop:
         elif action == "start_drawing_calibration":
             # Start calibration process
             self.drawing_manager.start_calibration(goal.arm)
+        
+        elif action == "plane_drawing":
+            # Execute plane-based drawing (3x3cm square on calibrated plane)
+            if self.drawing_manager.is_ready_to_draw():
+                await self._execute_plane_drawing(goal.arm)
+            else:
+                logger.error("🎨 Plane drawing requires 4-point calibration first")
             
     async def _execute_square_drawing(self, arm: str):
         """Just move the goal marker in PyBullet to the 4 saved positions."""
@@ -675,6 +682,224 @@ class ControlLoop:
         
         # Just move the goal marker directly
         asyncio.create_task(self._move_goal_marker_sequence(arm, saved_positions))
+    
+    async def _execute_plane_drawing(self, arm: str):
+        """Draw a 3x3cm square on the center of the calibrated plane with pen up/down moves."""
+        if not self.drawing_manager.is_ready_to_draw():
+            logger.error("Drawing manager not ready - calibration incomplete")
+            return
+            
+        logger.info(f"🎨 Starting plane drawing: 3x3cm square with {arm} arm...")
+        
+        try:
+            # Calculate plane from 4 calibration points
+            plane_info = self._calculate_drawing_plane()
+            if not plane_info:
+                logger.error("🎨 Could not calculate drawing plane")
+                return
+            
+            # Generate 3x3cm square path with pen up/down moves
+            drawing_moves = self._generate_square_drawing_moves(plane_info, square_size_cm=3.0)
+            if not drawing_moves:
+                logger.error("🎨 Could not generate drawing moves")
+                return
+            
+            logger.info(f"🎨 Generated {len(drawing_moves)} drawing moves")
+            
+            # Execute the drawing sequence with smooth animation
+            asyncio.create_task(self._execute_drawing_moves_sequence(arm, drawing_moves))
+            
+        except Exception as e:
+            logger.error(f"🎨 Error during plane drawing: {e}")
+    
+    def _calculate_drawing_plane(self):
+        """Calculate plane information from 4 calibration points."""
+        if len(self.drawing_manager.calibration_points) != 4:
+            return None
+        
+        # Get the 4 robot positions
+        points = []
+        for point in self.drawing_manager.calibration_points:
+            if point.robot_position is not None:
+                points.append(point.robot_position.copy())
+        
+        if len(points) != 4:
+            return None
+        
+        # Assume points are [bottom-left, bottom-right, top-right, top-left]
+        origin = points[0]  # bottom-left
+        x_axis = points[1] - points[0]  # bottom edge vector
+        y_axis = points[3] - points[0]  # left edge vector
+        
+        # Calculate normal vector (positive z should be "up" from plane)
+        normal = np.cross(x_axis, y_axis)
+        normal = normal / np.linalg.norm(normal)  # normalize
+        
+        # Ensure normal points "up" (positive z component)
+        if normal[2] < 0:
+            normal = -normal
+        
+        # Normalize axis vectors
+        x_length = np.linalg.norm(x_axis)
+        y_length = np.linalg.norm(y_axis)
+        x_unit = x_axis / x_length
+        y_unit = y_axis / y_length
+        
+        plane_info = {
+            'origin': origin,
+            'x_unit': x_unit,
+            'y_unit': y_unit, 
+            'normal': normal,
+            'x_length': x_length,
+            'y_length': y_length
+        }
+        
+        logger.info(f"🎨 Plane: origin={origin.round(3)}, size={x_length:.3f}x{y_length:.3f}m")
+        logger.info(f"🎨 Normal vector: {normal.round(3)}")
+        
+        return plane_info
+    
+    def _generate_square_drawing_moves(self, plane_info, square_size_cm=3.0):
+        """Generate drawing moves for a square on the plane with pen up/down."""
+        square_size_m = square_size_cm / 100.0  # Convert to meters
+        pen_up_height_m = 0.01  # 1cm above plane
+        
+        # Calculate center of the plane
+        center_x = plane_info['x_length'] / 2.0
+        center_y = plane_info['y_length'] / 2.0
+        
+        # Calculate square corners (centered on plane)
+        half_size = square_size_m / 2.0
+        square_corners_local = [
+            (center_x - half_size, center_y - half_size),  # bottom-left
+            (center_x + half_size, center_y - half_size),  # bottom-right  
+            (center_x + half_size, center_y + half_size),  # top-right
+            (center_x - half_size, center_y + half_size),  # top-left
+            (center_x - half_size, center_y - half_size),  # back to start
+        ]
+        
+        # Convert to 3D world coordinates
+        def local_to_world(x_local, y_local, pen_down=True):
+            # Position on plane
+            world_pos = (plane_info['origin'] + 
+                        x_local * plane_info['x_unit'] + 
+                        y_local * plane_info['y_unit'])
+            
+            # Add pen height if pen is up
+            if not pen_down:
+                world_pos += pen_up_height_m * plane_info['normal']
+            
+            return world_pos
+        
+        # Generate drawing moves with pen up/down
+        moves = []
+        
+        for i, (x, y) in enumerate(square_corners_local):
+            if i == 0:
+                # First move: go to start position with pen up, then pen down
+                moves.append({
+                    'position': local_to_world(x, y, pen_down=False),
+                    'description': f'Move to start (pen up)',
+                    'pen_down': False
+                })
+                moves.append({
+                    'position': local_to_world(x, y, pen_down=True), 
+                    'description': f'Lower pen to start drawing',
+                    'pen_down': True
+                })
+            else:
+                # Drawing moves: pen down to draw the line
+                moves.append({
+                    'position': local_to_world(x, y, pen_down=True),
+                    'description': f'Draw to corner {i+1}',
+                    'pen_down': True
+                })
+        
+        # Final move: lift pen up
+        final_x, final_y = square_corners_local[-1]
+        moves.append({
+            'position': local_to_world(final_x, final_y, pen_down=False),
+            'description': 'Lift pen (drawing complete)',
+            'pen_down': False
+        })
+        
+        logger.info(f"🎨 Generated {len(moves)} moves for {square_size_cm}x{square_size_cm}cm square")
+        for i, move in enumerate(moves):
+            logger.info(f"🎨   {i+1}. {move['description']}: {move['position'].round(3)}")
+        
+        return moves
+    
+    async def _execute_drawing_moves_sequence(self, arm: str, drawing_moves):
+        """Execute the drawing moves with smooth animation and proper timing."""
+        arm_state = self.left_arm if arm == "left" else self.right_arm
+        
+        logger.info(f"🎨 Starting drawing sequence for {arm} arm...")
+        self.drawing_in_progress = True
+        
+        try:
+            # Execute each drawing move
+            for i, move in enumerate(drawing_moves):
+                logger.info(f"🎨 Move {i+1}/{len(drawing_moves)}: {move['description']}")
+                target_pos = move['position']
+                
+                # Get current goal position as starting point
+                if arm_state.goal_position is not None:
+                    start_pos = arm_state.goal_position.copy()
+                else:
+                    start_pos = self.robot_interface.get_current_end_effector_position(arm) if self.robot_interface else target_pos
+                
+                # Calculate distance and movement time at 2cm/s
+                distance = np.linalg.norm(target_pos - start_pos)
+                speed = 0.02  # 2 cm/s
+                total_duration = distance / speed if speed > 0 else 1.0
+                
+                logger.info(f"🎨 Distance: {distance:.3f}m, Duration: {total_duration:.1f}s")
+                
+                # Smooth interpolation
+                control_frequency = 50.0  # 50Hz updates
+                num_steps = max(10, int(total_duration * control_frequency))
+                dt = total_duration / num_steps
+                
+                # Animate the goal position smoothly
+                for step in range(num_steps + 1):
+                    t_linear = step / num_steps  # 0 to 1
+                    t_smooth = 0.5 * (1 - np.cos(np.pi * t_linear))  # S-curve
+                    current_goal = start_pos + t_smooth * (target_pos - start_pos)
+                    
+                    # Update goal position
+                    arm_state.goal_position = current_goal.copy()
+                    arm_state.target_position = current_goal.copy()
+                    arm_state.mode = ControlMode.POSITION_CONTROL
+                    
+                    if step < num_steps:
+                        await asyncio.sleep(dt)
+                
+                logger.info(f"🎨 Reached: {target_pos.round(3)}")
+                
+                # Wait for robot arm to reach the position (within 0.5cm)
+                if self.robot_interface and i < len(drawing_moves) - 1:
+                    logger.info(f"🎨 Waiting for arm to reach position...")
+                    timeout = 10.0
+                    start_time = time.time()
+                    
+                    while time.time() - start_time < timeout:
+                        current_robot_pos = self.robot_interface.get_current_end_effector_position(arm)
+                        distance_to_goal = np.linalg.norm(current_robot_pos - target_pos)
+                        
+                        if distance_to_goal <= 0.005:  # 0.5cm
+                            logger.info(f"🎨 Arm reached! Distance: {distance_to_goal*1000:.1f}mm")
+                            break
+                        
+                        await asyncio.sleep(0.1)
+                    else:
+                        logger.warning(f"🎨 Timeout waiting for arm")
+            
+            logger.info("🎨 Plane drawing sequence complete!")
+            
+        except Exception as e:
+            logger.error(f"🎨 Error during drawing sequence: {e}")
+        finally:
+            self.drawing_in_progress = False
         
     async def _move_goal_marker_sequence(self, arm: str, saved_positions):
         """Move the goal marker smoothly at 2cm/s and wait for arm to reach each position."""
