@@ -86,28 +86,36 @@ class DrawingManager:
             
         self.is_calibrating = False
         
-        # Extract VR positions for plane computation
-        vr_points = np.array([point.vr_position for point in self.calibration_points])
+        # Extract robot goal positions for plane computation (this is what matters!)
+        robot_points = np.array([point.robot_position for point in self.calibration_points if point.robot_position is not None])
         
-        # Compute drawing plane from the 4 points
+        if len(robot_points) != 4:
+            logger.error("Missing robot positions for some calibration points")
+            return False
+        
+        # Compute drawing plane from the 4 robot goal positions
         # Assume points define a rectangle: [bottom-left, bottom-right, top-right, top-left]
         self.drawing_plane = {
-            'origin': vr_points[0],  # Bottom-left corner
-            'x_axis': vr_points[1] - vr_points[0],  # Bottom edge
-            'y_axis': vr_points[3] - vr_points[0],  # Left edge
-            'normal': np.cross(vr_points[1] - vr_points[0], vr_points[3] - vr_points[0])
+            'origin': robot_points[0],  # Bottom-left corner in robot coordinates
+            'x_axis': robot_points[1] - robot_points[0],  # Bottom edge
+            'y_axis': robot_points[3] - robot_points[0],  # Left edge
+            'normal': np.cross(robot_points[1] - robot_points[0], robot_points[3] - robot_points[0])
         }
         
         # Normalize axes for coordinate mapping
-        self.drawing_plane['x_axis'] = self.drawing_plane['x_axis'] / np.linalg.norm(self.drawing_plane['x_axis'])
-        self.drawing_plane['y_axis'] = self.drawing_plane['y_axis'] / np.linalg.norm(self.drawing_plane['y_axis'])
+        x_axis_length = np.linalg.norm(self.drawing_plane['x_axis'])
+        y_axis_length = np.linalg.norm(self.drawing_plane['y_axis'])
+        
+        self.drawing_plane['x_axis'] = self.drawing_plane['x_axis'] / x_axis_length
+        self.drawing_plane['y_axis'] = self.drawing_plane['y_axis'] / y_axis_length
         self.drawing_plane['normal'] = self.drawing_plane['normal'] / np.linalg.norm(self.drawing_plane['normal'])
         
-        # Calculate plane dimensions
-        width = np.linalg.norm(vr_points[1] - vr_points[0])
-        height = np.linalg.norm(vr_points[3] - vr_points[0])
+        # Store original dimensions for later use
+        self.drawing_plane['width'] = x_axis_length
+        self.drawing_plane['height'] = y_axis_length
         
-        logger.info(f"🎨 Drawing plane calibrated: {width:.3f}m x {height:.3f}m")
+        logger.info(f"🎨 Drawing plane calibrated: {x_axis_length:.3f}m x {y_axis_length:.3f}m")
+        logger.info(f"🎨 Robot goal positions: {[p.round(3) for p in robot_points]}")
         logger.info(f"🎨 Ready to draw on {self.current_drawing_arm} arm!")
         
         return True
@@ -153,28 +161,24 @@ class DrawingManager:
         return corners
         
     def drawing_to_robot_coordinates(self, drawing_point: DrawingPoint, pen_down: bool = True) -> Optional[np.ndarray]:
-        """Convert normalized drawing coordinates to robot coordinates."""
+        """Convert normalized drawing coordinates to robot goal coordinates."""
         if self.drawing_plane is None:
             return None
             
-        # Convert normalized coordinates back to VR coordinates
-        width = np.linalg.norm(self.calibration_points[1].vr_position - self.calibration_points[0].vr_position)
-        height = np.linalg.norm(self.calibration_points[3].vr_position - self.calibration_points[0].vr_position)
+        # Scale normalized coordinates to actual plane dimensions
+        x_scaled = drawing_point.x * self.drawing_plane['width']
+        y_scaled = drawing_point.y * self.drawing_plane['height']
         
-        # Scale to actual plane dimensions
-        x_scaled = drawing_point.x * width
-        y_scaled = drawing_point.y * height
-        
-        # Convert to 3D VR position on the plane
-        vr_position = (self.drawing_plane['origin'] + 
-                      x_scaled * self.drawing_plane['x_axis'] + 
-                      y_scaled * self.drawing_plane['y_axis'])
+        # Convert to 3D robot position on the plane
+        robot_position = (self.drawing_plane['origin'] + 
+                         x_scaled * self.drawing_plane['x_axis'] + 
+                         y_scaled * self.drawing_plane['y_axis'])
         
         # Add pen height offset if pen is up
         if not pen_down:
-            vr_position += self.pen_up_height * self.drawing_plane['normal']
+            robot_position += self.pen_up_height * self.drawing_plane['normal']
             
-        return vr_position
+        return robot_position
         
     def is_ready_to_draw(self) -> bool:
         """Check if drawing manager is ready to execute drawings."""

@@ -421,6 +421,23 @@ a-scene {
   cursor: not-allowed;
   transform: none;
 }
+.test-move-btn {
+  background: linear-gradient(45deg, #2196F3, #1976D2);
+  border: none;
+  color: white;
+  padding: 12px 24px;
+  font-size: 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 0.5rem;
+  margin-left: 10px;
+  min-width: 160px;
+}
+.test-move-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
 .engagement-status {
   font-size: 14px;
   color: white;

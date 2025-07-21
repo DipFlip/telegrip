@@ -457,7 +457,7 @@ class KeyboardListener(BaseInputProvider):
                             await self.send_goal(goal)
                 
                 # Sleep to control update rate
-                await asyncio.sleep(0.05)  # 20Hz update rate
+                await asyncio.sleep(0.02)  # 50Hz update rate - matches robot control frequency
                 
             except Exception as e:
                 logger.error(f"Error in keyboard control loop: {e}")

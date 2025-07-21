@@ -278,6 +278,29 @@ function updateDrawingUI() {
   }
 }
 
+// Test move function
+function testMove() {
+  fetch('/api/test_move', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ action: 'move_left_1cm', arm: 'right' })
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      alert('Test move command sent! Check robot movement.');
+    } else {
+      alert('Failed to send test move: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(error => {
+    console.error('Error sending test move:', error);
+    alert('Error communicating with server');
+  });
+}
+
 // Toggle keyboard control
 function toggleKeyboardControl() {
   const action = isKeyboardEnabled ? 'disable' : 'enable';
