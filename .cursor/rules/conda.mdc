@@ -3,6 +3,6 @@ description:
 globs: 
 alwaysApply: true
 ---
-This project use the conda environment "teleop"
+This project use the conda environment "telegrip"
 telegrip can run by just
 conda activate teleop && telegrip
