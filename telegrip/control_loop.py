@@ -480,6 +480,7 @@ class ControlLoop:
             asyncio.create_task(self._execute_smooth_test_move(goal))
             return  # SKIP all regular position control processing
         
+        
         # Handle gripper control (independent of mode)
         if goal.gripper_closed is not None and self.robot_interface:
             self.robot_interface.set_gripper(goal.arm, goal.gripper_closed)
@@ -653,50 +654,54 @@ class ControlLoop:
             self.drawing_manager.start_calibration(goal.arm)
             
     async def _execute_square_drawing(self, arm: str):
-        """Execute a square drawing on the calibrated plane with smooth trajectory."""
+        """Just move the goal marker in PyBullet to the 4 saved positions."""
         if not self.drawing_manager.is_ready_to_draw():
             logger.error("Drawing manager not ready - calibration incomplete")
             return
             
-        logger.info(f"🎨 Starting square drawing with {arm} arm...")
+        logger.info(f"🎨 Starting simple drawing: moving goal marker for {arm} arm...")
         
-        # Set drawing in progress to prevent VR interference
-        self.drawing_in_progress = True
+        # Get the 4 saved robot goal positions from calibration
+        saved_positions = []
+        for point in self.drawing_manager.calibration_points:
+            if point.robot_position is not None:
+                saved_positions.append(point.robot_position.copy())
+        
+        if len(saved_positions) != 4:
+            logger.error(f"Expected 4 saved positions, got {len(saved_positions)}")
+            return
+        
+        logger.info(f"🎨 Will move goal marker to 4 saved positions: {[pos.round(3) for pos in saved_positions]}")
+        
+        # Just move the goal marker directly
+        asyncio.create_task(self._move_goal_marker_sequence(arm, saved_positions))
+        
+    async def _move_goal_marker_sequence(self, arm: str, saved_positions):
+        """Just move the goal marker in PyBullet to each saved position with delays."""
+        arm_state = self.left_arm if arm == "left" else self.right_arm
+        
+        logger.info(f"🎨 Starting goal marker movement for {arm} arm...")
         
         try:
-            # First, initialize drawing mode by setting position control and origin
-            await self._initialize_drawing_mode(arm)
-            
-            # Generate square path
-            square_points = self.drawing_manager.generate_square_path(size=0.6)
-            
-            # Convert to robot coordinates
-            robot_waypoints = []
-            for i, point in enumerate(square_points):
-                pen_down = i > 0  # Pen up for first move, down for drawing
-                robot_pos = self.drawing_manager.drawing_to_robot_coordinates(point, pen_down)
-                if robot_pos is not None:
-                    robot_waypoints.append((robot_pos, pen_down))
-            
-            if not robot_waypoints:
-                logger.error("No valid robot waypoints generated")
-                return
-            
-            # Execute trajectory with velocity control
-            drawing_speed = 0.005  # 0.5 cm/s
-            
-            for i, (target_pos, pen_down) in enumerate(robot_waypoints):
-                logger.info(f"🎨 Moving to point {i+1}/{len(robot_waypoints)} - {'pen down' if pen_down else 'pen up'}")
-                logger.info(f"🎨 Target position: {target_pos.round(3)}")
+            # Move goal marker to each saved position
+            for i, target_pos in enumerate(saved_positions):
+                logger.info(f"🎨 Moving goal marker to point {i+1}/4: {target_pos.round(3)}")
                 
-                await self._move_to_position_like_vr(arm, target_pos, drawing_speed)
+                # Just update the goal position directly - this should move the marker in PyBullet
+                arm_state.goal_position = target_pos.copy()
+                arm_state.target_position = target_pos.copy()
+                arm_state.mode = ControlMode.POSITION_CONTROL
+                
+                logger.info(f"🎨 Goal marker moved to: {target_pos.round(3)}")
+                
+                # Wait before moving to next position
+                if i < len(saved_positions) - 1:  # Don't wait after last move
+                    await asyncio.sleep(3.0)  # 3 seconds between moves
             
-            logger.info("🎨 Square drawing complete!")
+            logger.info("🎨 Goal marker sequence complete!")
             
-        finally:
-            # Always clean up, even if there was an error
-            self.drawing_in_progress = False
-            await self._end_drawing_mode(arm)
+        except Exception as e:
+            logger.error(f"🎨 Error during goal marker movement: {e}")
         
     async def _initialize_drawing_mode(self, arm: str):
         """Initialize drawing mode like VR grip activation."""
@@ -724,17 +729,16 @@ class ControlLoop:
         logger.info(f"🎨 {arm.upper()} arm: Drawing mode ended")
         
     async def _move_to_position_smooth(self, arm: str, target_absolute_pos: np.ndarray, speed: float):
-        """Move to position using direct smooth trajectory interpolation (no origin-based system)."""
+        """Move to position using direct smooth trajectory interpolation (bypasses all VR systems)."""
         arm_state = self.left_arm if arm == "left" else self.right_arm
         
-        # Ensure arm is in position control mode
-        if arm_state.mode != ControlMode.POSITION_CONTROL:
-            arm_state.mode = ControlMode.POSITION_CONTROL
-            logger.info(f"🎬 {arm.upper()} arm: Position control ACTIVATED for smooth movement")
-        
-        # Get current robot position as starting point
-        if self.robot_interface:
+        # Get starting position - use current target if available (for chained movements), otherwise robot position
+        if arm_state.target_position is not None:
+            start_pos = arm_state.target_position.copy()
+            logger.info(f"🎬 Using current target position as start: {start_pos.round(3)}")
+        elif self.robot_interface:
             start_pos = self.robot_interface.get_current_end_effector_position(arm)
+            logger.info(f"🎬 Using robot position as start: {start_pos.round(3)}")
         else:
             logger.error("🎬 No robot interface available for smooth movement")
             return
@@ -747,14 +751,18 @@ class ControlLoop:
         logger.info(f"🎬 Distance: {total_distance:.3f}m, Duration: {total_duration:.1f}s, Speed: {speed:.3f}m/s")
         
         # Create smooth interpolation that matches robot control frequency
-        control_frequency = 1.0 / self.config.send_interval  # Hz (usually ~20Hz)
+        control_frequency = 1.0 / self.config.send_interval  # Hz (usually 50Hz now)
         num_steps = max(10, int(total_duration * control_frequency))  # Steps at robot frequency
         dt = total_duration / num_steps
         
         logger.info(f"🎬 Control frequency: {control_frequency:.1f}Hz, Steps: {num_steps}, dt: {dt:.3f}s")
         
+        # Activate position control mode and ensure clean state
+        arm_state.mode = ControlMode.POSITION_CONTROL
+        arm_state.origin_position = None  # Clear origin to prevent VR system interference
+        
         for i in range(num_steps + 1):
-            # Smooth interpolation with ease-in-out for natural motion (like VR)
+            # Smooth interpolation with ease-in-out for natural motion
             t_linear = i / num_steps  # 0 to 1
             # Apply smooth curve: ease-in-out using cosine interpolation
             t_smooth = 0.5 * (1 - np.cos(np.pi * t_linear))  # S-curve acceleration/deceleration
@@ -762,7 +770,7 @@ class ControlLoop:
             
             logger.debug(f"🎬 Step {i+1}/{num_steps+1}: {current_target.round(3)} (t={t_smooth:.3f})")
             
-            # Set the target position directly (no origin-based relative positioning)
+            # Set the target position directly - this bypasses all VR relative positioning
             arm_state.target_position = current_target.copy()
             arm_state.goal_position = current_target.copy()
             
