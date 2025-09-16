@@ -70,7 +70,7 @@ class ControlLoop:
         
         self.is_running = False
     
-    async def setup(self) -> bool:
+    def setup(self) -> bool:
         """Setup robot interface and visualizer."""
         success = True
         setup_errors = []
@@ -139,7 +139,7 @@ class ControlLoop:
     
     async def start(self):
         """Start the control loop."""
-        if not await self.setup():
+        if not self.setup():
             logger.error("Control loop setup failed")
             return
         
