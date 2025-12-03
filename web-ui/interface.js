@@ -337,12 +337,20 @@ function handleKeyUp(event) {
 function isControlKey(code) {
   // Check if this is one of our robot control keys
   const controlKeys = [
-    // Left arm
-    'KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 
-    'KeyZ', 'KeyX', 'KeyF',
-    // Right arm
+    // Left arm movement
+    'KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE',
+    // Left arm wrist
+    'KeyZ', 'KeyX',  // wrist roll
+    'KeyR', 'KeyT',  // wrist flex
+    'KeyF',          // gripper
+    'Tab',           // toggle position control
+    // Right arm movement
     'KeyI', 'KeyK', 'KeyJ', 'KeyL', 'KeyU', 'KeyO',
-    'KeyN', 'KeyM', 'Semicolon',
+    // Right arm wrist
+    'KeyN', 'KeyM',  // wrist roll
+    'KeyH', 'KeyY',  // wrist flex
+    'Semicolon',     // gripper
+    'Enter',         // toggle position control
     // Global
     'Escape'
   ];
@@ -352,14 +360,22 @@ function isControlKey(code) {
 function sendKeyCommand(keyCode, action) {
   // Convert browser keyCode to our key mapping
   const keyMap = {
-    // Left arm
+    // Left arm movement
     'KeyW': 'w', 'KeyS': 's', 'KeyA': 'a', 'KeyD': 'd',
-    'KeyQ': 'q', 'KeyE': 'e', 'KeyZ': 'z', 'KeyX': 'x',
-    'KeyF': 'f',
-    // Right arm  
+    'KeyQ': 'q', 'KeyE': 'e',
+    // Left arm wrist
+    'KeyZ': 'z', 'KeyX': 'x',  // wrist roll
+    'KeyR': 'r', 'KeyT': 't',  // wrist flex
+    'KeyF': 'f',               // gripper
+    'Tab': 'tab',              // toggle position control
+    // Right arm movement
     'KeyI': 'i', 'KeyK': 'k', 'KeyJ': 'j', 'KeyL': 'l',
-    'KeyU': 'u', 'KeyO': 'o', 'KeyN': 'n', 'KeyM': 'm',
-    'Semicolon': ';',
+    'KeyU': 'u', 'KeyO': 'o',
+    // Right arm wrist
+    'KeyN': 'n', 'KeyM': 'm',  // wrist roll
+    'KeyH': 'h', 'KeyY': 'y',  // wrist flex
+    'Semicolon': ';',          // gripper
+    'Enter': 'enter',          // toggle position control
     // Global
     'Escape': 'esc'
   };

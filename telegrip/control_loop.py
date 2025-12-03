@@ -14,6 +14,7 @@ from .config import TelegripConfig, NUM_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_IND
 from .core.robot_interface import RobotInterface
 # PyBulletVisualizer will be imported on demand
 from .inputs.base import ControlGoal, ControlMode
+# WebKeyboardHandler will be imported on demand to avoid circular imports
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class ControlLoop:
         # Components
         self.robot_interface = None
         self.visualizer = None
-        self.keyboard_listener = None  # Reference to keyboard listener for commands
+        self.web_keyboard_handler = None  # Reference to web-based keyboard handler
         
         # Arm states
         self.left_arm = ArmState("left")
@@ -129,11 +130,11 @@ class ControlLoop:
             for i, error in enumerate(setup_errors, 1):
                 logger.error(f"  {i}. {error}")
         
-        # Set robot interface on keyboard listener so it can get current positions
-        if self.keyboard_listener and self.robot_interface:
-            self.keyboard_listener.set_robot_interface(self.robot_interface)
-            logger.info("Set robot interface on keyboard listener")
-        
+        # Set robot interface on web keyboard handler so it can get current positions
+        if self.web_keyboard_handler and self.robot_interface:
+            self.web_keyboard_handler.set_robot_interface(self.robot_interface)
+            logger.info("Set robot interface on web keyboard handler")
+
         return success
     
     async def start(self):
@@ -228,22 +229,26 @@ class ControlLoop:
         logger.info(f"🔌 Processing control command: {action}")
         
         if action == 'enable_keyboard':
-            if self.keyboard_listener:
-                await self.keyboard_listener.start()
+            if self.web_keyboard_handler:
+                await self.web_keyboard_handler.start()
                 logger.info("🎮 Keyboard control ENABLED via API")
         elif action == 'disable_keyboard':
-            if self.keyboard_listener:
-                await self.keyboard_listener.stop()
+            if self.web_keyboard_handler:
+                await self.web_keyboard_handler.stop()
                 logger.info("🎮 Keyboard control DISABLED via API")
         elif action == 'web_keypress':
             # Handle individual keypress events from web interface
-            if self.keyboard_listener and self.keyboard_listener.is_enabled:
-                key = command.get('key')
-                event = command.get('event')  # 'press' or 'release'
-                logger.info(f"🎮 Processing web keypress: {key}_{event}")
-                await self._handle_web_keypress(key, event)
+            key = command.get('key')
+            event = command.get('event')  # 'press' or 'release'
+
+            if self.web_keyboard_handler and self.web_keyboard_handler.is_enabled:
+                logger.debug(f"🌐 Processing web keypress: {key}_{event}")
+                if event == 'press':
+                    self.web_keyboard_handler.on_key_press(key)
+                elif event == 'release':
+                    self.web_keyboard_handler.on_key_release(key)
             else:
-                logger.warning("🎮 Keyboard control not enabled for web keypress")
+                logger.warning("🎮 Web keyboard handler not enabled")
         elif action == 'robot_connect':
             logger.info("🔌 Processing robot_connect command")
             if self.robot_interface and self.robot_interface.is_connected:
@@ -281,61 +286,7 @@ class ControlLoop:
                 logger.warning("Cannot disengage robot: no robot interface")
         else:
             logger.warning(f"Unknown command: {action}")
-    
-    async def _handle_web_keypress(self, key: str, event: str):
-        """Handle keypress events from web interface by delegating to keyboard listener."""
-        if not self.keyboard_listener:
-            return
-            
-        # Create a mock key object for compatibility with keyboard listener
-        class MockKey:
-            def __init__(self, char=None, key_type=None):
-                self.char = char
-                self.key_type = key_type
-        
-        # Map special keys
-        special_keys = {
-            'tab': 'Key.tab',
-            'enter': 'Key.enter', 
-            'esc': 'Key.esc'
-        }
-        
-        try:
-            if event == 'press':
-                if key in special_keys:
-                    # Handle special keys
-                    if key == 'tab':
-                        from pynput.keyboard import Key
-                        mock_key = Key.tab
-                    elif key == 'enter':
-                        from pynput.keyboard import Key
-                        mock_key = Key.enter
-                    elif key == 'esc':
-                        from pynput.keyboard import Key
-                        mock_key = Key.esc
-                    else:
-                        return
-                else:
-                    # Handle character keys
-                    mock_key = MockKey(char=key)
-                
-                # Call keyboard listener's on_press method
-                self.keyboard_listener.on_press(mock_key)
-                
-            elif event == 'release':
-                if key in special_keys:
-                    # Special keys don't typically need release handling
-                    return
-                else:
-                    # Handle character key release
-                    mock_key = MockKey(char=key)
-                
-                # Call keyboard listener's on_release method
-                self.keyboard_listener.on_release(mock_key)
-                
-        except Exception as e:
-            logger.error(f"Error handling web keypress {key}_{event}: {e}")
-    
+
     async def _execute_goal(self, goal: ControlGoal):
         """Execute a control goal."""
         arm_state = self.left_arm if goal.arm == "left" else self.right_arm

@@ -76,7 +76,7 @@ def suppress_stdout_stderr():
 from .config import TelegripConfig, get_config_data, update_config_data
 from .control_loop import ControlLoop
 from .inputs.vr_ws_server import VRWebSocketServer
-from .inputs.keyboard_listener import KeyboardListener
+from .inputs.web_keyboard import WebKeyboardHandler
 from .inputs.base import ControlGoal
 
 # Logger will be configured in main() based on command line arguments
@@ -166,8 +166,8 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
                 
                 # Get keyboard status
                 keyboard_enabled = False
-                if system.keyboard_listener and hasattr(system.keyboard_listener, 'is_enabled'):
-                    keyboard_enabled = system.keyboard_listener.is_enabled
+                if system.web_keyboard_handler and hasattr(system.web_keyboard_handler, 'is_enabled'):
+                    keyboard_enabled = system.web_keyboard_handler.is_enabled
                 
                 # Get robot engagement status
                 robot_engaged = False
@@ -469,14 +469,14 @@ class TelegripSystem:
         # Components
         self.https_server = HTTPSServer(config)
         self.vr_server = VRWebSocketServer(self.command_queue, config)
-        self.keyboard_listener = KeyboardListener(self.command_queue, config)
+        self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, config)
         self.control_loop = ControlLoop(self.command_queue, config, self.control_commands_queue)
-        
+
         # Set system reference for API calls
         self.https_server.set_system_ref(self)
-        
+
         # Set up cross-references
-        self.control_loop.keyboard_listener = self.keyboard_listener
+        self.control_loop.web_keyboard_handler = self.web_keyboard_handler
         
         # Tasks
         self.tasks = []
@@ -569,50 +569,50 @@ class TelegripSystem:
             
             # Stop components in reverse order
             await self.control_loop.stop()
-            await self.keyboard_listener.stop()
+            await self.web_keyboard_handler.stop()
             await self.vr_server.stop()
             # Don't stop HTTPS server - keep it running for the UI
-            
+
             # Wait a moment for cleanup
             await asyncio.sleep(1)
-            
+
             # Reload configuration from file but preserve command-line overrides
             from .config import get_config_data
             file_config = get_config_data()
             logger.info("Configuration reloaded from file")
-            
+
             # Keep the existing configuration object to preserve command-line arguments
             # Just update specific values that might have changed in the config file
-            
+
             # Recreate components with existing configuration
             self.command_queue = asyncio.Queue()
             self.control_commands_queue = queue.Queue(maxsize=10)
-            
+
             # Create new components
             self.vr_server = VRWebSocketServer(self.command_queue, self.config)
-            self.keyboard_listener = KeyboardListener(self.command_queue, self.config)
+            self.web_keyboard_handler = WebKeyboardHandler(self.command_queue, self.config)
             self.control_loop = ControlLoop(self.command_queue, self.config, self.control_commands_queue)
-            
+
             # Set up cross-references
-            self.control_loop.keyboard_listener = self.keyboard_listener
-            
+            self.control_loop.web_keyboard_handler = self.web_keyboard_handler
+
             # Clear old tasks
             self.tasks = []
-            
+
             # Start VR WebSocket server
             await self.vr_server.start()
-            
-            # Start keyboard listener
-            await self.keyboard_listener.start()
-            
+
+            # Start web keyboard handler
+            await self.web_keyboard_handler.start()
+
             # Start control loop
             control_task = asyncio.create_task(self.control_loop.start())
             self.tasks.append(control_task)
-            
+
             # Start control command processor
             command_processor_task = asyncio.create_task(self._run_command_processor())
             self.tasks.append(command_processor_task)
-            
+
             logger.info("System restart completed successfully")
             
             # Auto-connect to robot if requested (preserve autoconnect behavior after restart)
@@ -638,18 +638,18 @@ class TelegripSystem:
             
             # Start VR WebSocket server
             await self.vr_server.start()
-            
-            # Start keyboard listener
-            await self.keyboard_listener.start()
-            
+
+            # Start web keyboard handler
+            await self.web_keyboard_handler.start()
+
             # Start control loop
             control_task = asyncio.create_task(self.control_loop.start())
             self.tasks.append(control_task)
-            
+
             # Start control command processor
             command_processor_task = asyncio.create_task(self._run_command_processor())
             self.tasks.append(command_processor_task)
-            
+
             logger.info("All system components started successfully")
             
             # Auto-connect to robot if requested
@@ -679,6 +679,15 @@ class TelegripSystem:
                     logger.error(f"Error in main task loop: {e}")
                     break
             
+        except OSError as e:
+            if e.errno == 98:  # Address already in use
+                logger.error(f"Error starting teleoperation system: {e}")
+                logger.error(f"To find and kill the process using these ports, run:")
+                logger.error(f"  kill -9 $(lsof -t -i:{self.config.https_port} -i:{self.config.websocket_port})")
+            else:
+                logger.error(f"Error starting teleoperation system: {e}")
+            await self.stop()
+            raise
         except Exception as e:
             logger.error(f"Error starting teleoperation system: {e}")
             await self.stop()
@@ -711,10 +720,10 @@ class TelegripSystem:
         
         # Stop components in reverse order
         await self.control_loop.stop()
-        await self.keyboard_listener.stop()
+        await self.web_keyboard_handler.stop()
         await self.vr_server.stop()
         await self.https_server.stop()
-        
+
         logger.info("Teleoperation system shutdown complete")
 
 

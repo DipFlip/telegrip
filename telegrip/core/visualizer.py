@@ -78,14 +78,38 @@ class PyBulletVisualizer:
         
         self.is_connected = False
     
+    def _can_use_display(self) -> bool:
+        """Check if X11/display is available for GUI mode."""
+        display = os.environ.get('DISPLAY')
+        if not display:
+            return False
+        # Try to verify X11 connection is possible
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['xdpyinfo'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            return False
+
     def setup(self) -> bool:
         """Initialize PyBullet and load the robot."""
         # Determine if we should suppress output (but not GUI display)
         should_suppress_output = getattr(logging, self.log_level.upper()) > logging.INFO
-        
+
+        # Check if display is available before trying GUI mode
+        use_gui = self.use_gui
+        if use_gui and not self._can_use_display():
+            logger.warning("No display available (X11 not connected), falling back to headless mode")
+            use_gui = False
+
         try:
             # GUI visibility is controlled by use_gui flag, not log level
-            if self.use_gui:
+            if use_gui:
                 if should_suppress_output:
                     # Suppress console output but still show GUI
                     with suppress_stdout_stderr():
