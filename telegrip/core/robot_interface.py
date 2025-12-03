@@ -499,18 +499,26 @@ class RobotInterface:
         except Exception as e:
             logger.error(f"Error returning to initial position: {e}")
     
-    def disable_torque(self):
-        """Disable torque on all robot joints."""
+    def disable_torque(self, arm: str = None):
+        """Disable torque on robot joints.
+
+        Args:
+            arm: 'left', 'right', or None for both arms
+        """
         if not self.is_connected:
             return
-        
+
         try:
-            logger.info("Disabling torque on follower motors...")
-            
-            # The new SO100Follower automatically handles torque disable on disconnect
-            # We don't need to manually disable torque as it's handled by the robot class
-            logger.info("Torque will be disabled automatically on disconnect")
-                    
+            if arm is None or arm == "left":
+                if self.left_robot and self.left_arm_connected:
+                    logger.info("Disabling torque on LEFT arm...")
+                    self.left_robot.bus.disable_torque()
+
+            if arm is None or arm == "right":
+                if self.right_robot and self.right_arm_connected:
+                    logger.info("Disabling torque on RIGHT arm...")
+                    self.right_robot.bus.disable_torque()
+
         except Exception as e:
             logger.error(f"Error disabling torque: {e}")
     

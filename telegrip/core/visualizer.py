@@ -78,14 +78,59 @@ class PyBulletVisualizer:
         
         self.is_connected = False
     
+    def _can_use_display(self) -> bool:
+        """Check if X11/display is available for GUI mode with OpenGL support."""
+        display = os.environ.get('DISPLAY')
+        if not display:
+            return False
+        # Try to verify X11 connection is possible
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['xdpyinfo'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=2
+            )
+            if result.returncode != 0:
+                return False
+
+            # Also check if GLX (OpenGL) is available - this fails over SSH X11 forwarding
+            result = subprocess.run(
+                ['glxinfo'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5
+            )
+            if result.returncode != 0:
+                logger.debug("glxinfo failed - OpenGL not available")
+                return False
+
+            # Check for common failure indicators in glxinfo output
+            output = result.stdout.decode('utf-8', errors='ignore') + result.stderr.decode('utf-8', errors='ignore')
+            if 'Error' in output or 'failed' in output.lower():
+                logger.debug("glxinfo reported errors - OpenGL context may not work")
+                return False
+
+            return True
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            logger.debug(f"Display check failed: {e}")
+            return False
+
     def setup(self) -> bool:
         """Initialize PyBullet and load the robot."""
         # Determine if we should suppress output (but not GUI display)
         should_suppress_output = getattr(logging, self.log_level.upper()) > logging.INFO
-        
+
+        # Check if display is available before trying GUI mode
+        use_gui = self.use_gui
+        if use_gui and not self._can_use_display():
+            logger.warning("No display available (X11 not connected), falling back to headless mode")
+            use_gui = False
+
         try:
             # GUI visibility is controlled by use_gui flag, not log level
-            if self.use_gui:
+            if use_gui:
                 if should_suppress_output:
                     # Suppress console output but still show GUI
                     with suppress_stdout_stderr():

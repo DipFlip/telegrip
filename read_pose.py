@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 class PoseRecorder:
     """Records robot poses for use as IK reference poses."""
-    
+
     def __init__(self):
         self.config = TelegripConfig()
         self.robot_interface = RobotInterface(self.config)
@@ -33,141 +33,126 @@ class PoseRecorder:
             'left': [],
             'right': []
         }
-        
+
     def connect_robot(self) -> bool:
         """Connect to the robot."""
         logger.info("Connecting to robot...")
         if not self.robot_interface.connect():
             logger.error("Failed to connect to robot")
             return False
-        
+
         logger.info("✅ Robot connected successfully")
-        
-        # Disengage motors for manual positioning
-        logger.info("Disengaging motors for manual positioning...")
-        if self.robot_interface.disengage():
-            logger.info("✅ Motors disengaged - you can now manually position the arms")
-        else:
-            logger.warning("⚠️ Failed to disengage motors, but continuing...")
-        
         return True
-    
-    def read_current_poses(self) -> dict:
-        """Read current joint angles for both arms from robot hardware."""
+
+    def read_current_pose(self, arm: str) -> list:
+        """Read current joint angles for specified arm from robot hardware."""
         try:
-            # Read actual joint positions from robot hardware
-            if not self.robot_interface.robot:
-                logger.error("No robot connection available")
-                return None
-                
-            # Capture current observation from robot
-            observation = self.robot_interface.robot.capture_observation()
-            if not observation or "observation.state" not in observation:
-                logger.error("Failed to capture robot observation")
-                return None
-            
-            # Extract joint state
-            current_state = observation["observation.state"].cpu().numpy()
-            logger.debug(f"Read joint state shape: {current_state.shape}, values: {current_state}")
-            
-            # Parse dual arm configuration
-            if len(current_state) == NUM_JOINTS * 2:  # Dual arm
-                left_angles = current_state[:NUM_JOINTS]
-                right_angles = current_state[NUM_JOINTS:]
-            elif len(current_state) == NUM_JOINTS:  # Single arm fallback
-                logger.warning("Single arm state detected, using for both arms")
-                left_angles = current_state
-                right_angles = current_state
-            else:
-                logger.error(f"Unexpected joint state length: {len(current_state)}")
-                return None
-            
-            return {
-                'left': left_angles.tolist(),
-                'right': right_angles.tolist()
-            }
-            
+            angles = self.robot_interface.get_actual_arm_angles(arm)
+            return angles.tolist()
         except Exception as e:
-            logger.error(f"Failed to read current poses from robot hardware: {e}")
+            logger.error(f"Failed to read current pose for {arm} arm: {e}")
             return None
-    
+
+    def record_arm_poses(self, arm: str):
+        """Record poses for a single arm."""
+        print(f"\n{'='*60}")
+        print(f"Recording poses for {arm.upper()} ARM")
+        print(f"{'='*60}")
+
+        # Disable torque on this arm so it can be moved by hand
+        print(f"\n🔓 Disabling torque on {arm.upper()} arm...")
+        self.robot_interface.disable_torque(arm)
+        print(f"✅ {arm.upper()} arm is now FREE - you can move it by hand\n")
+
+        pose_count = 0
+
+        while True:
+            print(f"📍 {arm.upper()} ARM - Pose #{pose_count + 1}")
+            print("   Position the arm in a good configuration...")
+
+            user_input = input("   Press Enter to record, 's' to skip to next arm, 'done' to finish: ").strip().lower()
+
+            if user_input == 'done':
+                return 'done'
+            elif user_input == 's':
+                break
+
+            # Read current pose
+            current_pose = self.read_current_pose(arm)
+            if current_pose is None:
+                print("   ❌ Failed to read current pose. Try again.")
+                continue
+
+            # Add to reference poses
+            self.reference_poses[arm].append(current_pose)
+            pose_count += 1
+
+            print(f"   ✅ Recorded pose #{pose_count}")
+            print(f"   Angles: {[f'{x:.1f}°' for x in current_pose]}")
+
+            # Show joint names for clarity
+            joint_names = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
+            for i, name in enumerate(joint_names):
+                print(f"      {name}: {current_pose[i]:.1f}°")
+            print()
+
+            if pose_count >= 2:
+                print(f"   ✅ Good! You have {pose_count} poses for {arm.upper()} arm.")
+                print("   Record more, press 's' for next arm, or 'done' to finish.\n")
+
+        return 'next'
+
     def record_poses(self):
-        """Interactive pose recording session."""
+        """Interactive pose recording session - one arm at a time."""
         print("\n" + "="*60)
         print("SO100 Robot Reference Pose Recorder")
         print("="*60)
-        print("This script will help you record reference poses for both arms.")
-        print("These poses will be used to improve IK solving by providing")
-        print("additional starting points to prevent getting stuck in local minima.")
+        print("\nThis script will help you record reference poses for each arm.")
+        print("These poses improve IK solving by providing good starting points.")
         print("\nInstructions:")
-        print("1. Motors are DISENGAGED - you can safely move the arms by hand")
-        print("2. Manually position the robot arms in good configurations")
-        print("3. Press Enter to record the current pose")
-        print("4. Record 2-3 diverse poses for each arm")
-        print("5. Type 'done' when finished")
-        print(f"6. The poses will be saved to '{REFERENCE_POSES_FILE}'")
+        print("  1. Each arm will be released one at a time")
+        print("  2. Move the arm to different good configurations")
+        print("  3. Press Enter to record each pose")
+        print("  4. Press 's' to move to the next arm")
+        print("  5. Type 'done' when completely finished")
+        print("  6. Record 2-4 diverse poses per arm for best results")
         print("="*60)
-        
-        pose_count = 0
-        
-        while True:
-            print(f"\n📍 Recording pose #{pose_count + 1}")
-            print("Position the robot arms in a good configuration...")
-            
-            user_input = input("Press Enter to record current pose (or 'done' to finish): ").strip().lower()
-            
-            if user_input == 'done':
-                break
-                
-            # Read current poses
-            current_poses = self.read_current_poses()
-            if current_poses is None:
-                print("❌ Failed to read current poses. Try again.")
-                continue
-            
-            # Add to reference poses
-            self.reference_poses['left'].append(current_poses['left'])
-            self.reference_poses['right'].append(current_poses['right'])
-            pose_count += 1
-            
-            print(f"✅ Recorded pose #{pose_count}")
-            print(f"   Left arm:  {[f'{x:.1f}' for x in current_poses['left']]}")
-            print(f"   Right arm: {[f'{x:.1f}' for x in current_poses['right']]}")
-            
-            # Show joint names for clarity
-            joint_names = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
-            print(f"   Joint breakdown:")
-            for i, name in enumerate(joint_names):
-                print(f"     {name}: L={current_poses['left'][i]:.1f}°, R={current_poses['right'][i]:.1f}°")
-            
-            if pose_count >= 2:
-                print(f"\n✅ Good! You have {pose_count} reference poses recorded.")
-                print("You can record more poses or type 'done' to finish.")
-    
+
+        # Record left arm first
+        result = self.record_arm_poses('left')
+        if result == 'done':
+            return
+
+        # Then record right arm
+        result = self.record_arm_poses('right')
+
     def save_poses(self):
         """Save recorded poses to file."""
-        if not self.reference_poses['left'] and not self.reference_poses['right']:
+        total_poses = len(self.reference_poses['left']) + len(self.reference_poses['right'])
+        if total_poses == 0:
             print("❌ No poses recorded. Nothing to save.")
             return False
-        
+
         # Get the configured file path (absolute)
         filename = Path(self.config.get_absolute_reference_poses_path())
-        
+
         # Create parent directory if it doesn't exist
         filename.parent.mkdir(parents=True, exist_ok=True)
-        
+
         try:
             with open(filename, 'w') as f:
                 json.dump(self.reference_poses, f, indent=2)
-            
-            print(f"\n✅ Saved {len(self.reference_poses['left'])} reference poses to {filename}")
-            print("These poses will now be used by the IK solver to improve performance.")
+
+            print(f"\n✅ Saved reference poses to {filename}")
+            print(f"   Left arm:  {len(self.reference_poses['left'])} poses")
+            print(f"   Right arm: {len(self.reference_poses['right'])} poses")
+            print("\nThese poses will now be used by the IK solver.")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to save poses: {e}")
             return False
-    
+
     def disconnect_robot(self):
         """Disconnect from the robot."""
         try:
@@ -180,33 +165,33 @@ def main():
     """Main function to read and save robot poses."""
     print("🤖 SO100 Reference Pose Recorder")
     print("=" * 40)
-    
-    # Cache file for reference poses (will be handled by config methods)
-    
+
     recorder = PoseRecorder()
-    
+
     try:
         # Connect to robot
         if not recorder.connect_robot():
             sys.exit(1)
-        
+
         # Wait a moment for connection to stabilize
-        time.sleep(1)
-        
+        time.sleep(0.5)
+
         # Record poses interactively
         recorder.record_poses()
-        
+
         # Save recorded poses
         recorder.save_poses()
-        
+
     except KeyboardInterrupt:
         print("\n\n🛑 Recording interrupted by user")
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     finally:
         # Always disconnect
         recorder.disconnect_robot()
 
 if __name__ == "__main__":
-    main() 
+    main()

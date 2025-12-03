@@ -82,3 +82,6 @@ cython_debug/
 # SSL Certificates
 key.pem
 cert.pem
+
+# AI-assistant notes
+CLAUDE.md

@@ -2,6 +2,7 @@
 let isKeyboardEnabled = false;
 let isRobotEngaged = false;
 let currentConfig = {};
+let warningTimeout = null;
 
 // Settings modal functions
 function openSettings() {
@@ -187,17 +188,51 @@ function updateEngagementUI() {
   const engageBtn = document.getElementById('robotEngageBtn');
   const engageBtnText = document.getElementById('engageBtnText');
   const engagementStatusText = document.getElementById('engagementStatusText');
-  
+  const connectionHint = document.getElementById('connectionHint');
+  const connectionWarning = document.getElementById('connectionWarning');
+
   if (isRobotEngaged) {
     engageBtn.classList.add('disconnect');
+    engageBtn.classList.remove('needs-attention');
     engageBtnText.textContent = '🔌 Disconnect Robot';
     engagementStatusText.textContent = 'Motors Engaged';
     engagementStatusText.style.color = '#FFFFFF';
+    if (connectionHint) connectionHint.style.display = 'none';
+    if (connectionWarning) connectionWarning.classList.remove('show');
   } else {
     engageBtn.classList.remove('disconnect');
     engageBtnText.textContent = '🔌 Connect Robot';
     engagementStatusText.textContent = 'Motors Disengaged';
     engagementStatusText.style.color = '#FFFFFF';
+    if (connectionHint) connectionHint.style.display = 'block';
+  }
+}
+
+function showConnectionWarning() {
+  const engageBtn = document.getElementById('robotEngageBtn');
+  const connectionWarning = document.getElementById('connectionWarning');
+
+  if (!isRobotEngaged) {
+    // Add pulsing animation to the connect button
+    engageBtn.classList.add('needs-attention');
+
+    // Show the warning message
+    if (connectionWarning) {
+      connectionWarning.classList.add('show');
+    }
+
+    // Clear any existing timeout
+    if (warningTimeout) {
+      clearTimeout(warningTimeout);
+    }
+
+    // Hide warning and stop pulsing after 5 seconds
+    warningTimeout = setTimeout(() => {
+      engageBtn.classList.remove('needs-attention');
+      if (connectionWarning) {
+        connectionWarning.classList.remove('show');
+      }
+    }, 5000);
   }
 }
 
@@ -266,33 +301,27 @@ function isVRMode() {
 // Update UI based on device
 function updateUIForDevice() {
   const desktopInterface = document.getElementById('desktopInterface');
-  const vrContent = document.getElementById('vrContent');
-  
+
   if (isVRMode()) {
     desktopInterface.style.display = 'none';
-    vrContent.style.display = 'none';
   } else {
     // Check if this is a VR-capable device
     if (navigator.xr) {
       navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
         if (supported) {
-          // VR-capable device - show VR interface
+          // VR-capable device - hide desktop interface (custom button in vr_app.js handles VR)
           desktopInterface.style.display = 'none';
-          vrContent.style.display = 'block';
         } else {
           // Not VR-capable - show desktop interface
           desktopInterface.style.display = 'block';
-          vrContent.style.display = 'none';
         }
       }).catch(() => {
         // Fallback to desktop interface if XR check fails
         desktopInterface.style.display = 'block';
-        vrContent.style.display = 'none';
       });
     } else {
       // No XR support - show desktop interface
       desktopInterface.style.display = 'block';
-      vrContent.style.display = 'none';
     }
   }
 }
@@ -301,18 +330,25 @@ function updateUIForDevice() {
 let pressedKeys = new Set();
 
 // Add keyboard event listeners for web-based control
-document.addEventListener('keydown', handleKeyDown);
-document.addEventListener('keyup', handleKeyUp);
+// Use capture phase to intercept keys before browser handles them (e.g., F for fullscreen)
+document.addEventListener('keydown', handleKeyDown, { capture: true });
+document.addEventListener('keyup', handleKeyUp, { capture: true });
 
 function handleKeyDown(event) {
   // Prevent default browser behavior for our control keys regardless of keyboard state
   if (isControlKey(event.code)) {
     event.preventDefault();
   }
-  
+
+  // Show warning if robot is not connected and user presses control keys
+  if (isControlKey(event.code) && !isRobotEngaged) {
+    showConnectionWarning();
+    return;
+  }
+
   // Only handle keys if keyboard control is enabled and we're focused on the page
   if (!isKeyboardEnabled || pressedKeys.has(event.code)) return;
-  
+
   if (isControlKey(event.code)) {
     pressedKeys.add(event.code);
     sendKeyCommand(event.code, 'press');
@@ -337,12 +373,20 @@ function handleKeyUp(event) {
 function isControlKey(code) {
   // Check if this is one of our robot control keys
   const controlKeys = [
-    // Left arm
-    'KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 
-    'KeyZ', 'KeyX', 'KeyF',
-    // Right arm
+    // Left arm movement
+    'KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE',
+    // Left arm wrist
+    'KeyZ', 'KeyX',  // wrist roll
+    'KeyR', 'KeyT',  // wrist flex
+    'KeyF',          // gripper
+    'Tab',           // toggle position control
+    // Right arm movement
     'KeyI', 'KeyK', 'KeyJ', 'KeyL', 'KeyU', 'KeyO',
-    'KeyN', 'KeyM', 'Semicolon',
+    // Right arm wrist
+    'KeyN', 'KeyM',  // wrist roll
+    'KeyH', 'KeyY',  // wrist flex
+    'Semicolon',     // gripper
+    'Enter',         // toggle position control
     // Global
     'Escape'
   ];
@@ -352,14 +396,22 @@ function isControlKey(code) {
 function sendKeyCommand(keyCode, action) {
   // Convert browser keyCode to our key mapping
   const keyMap = {
-    // Left arm
+    // Left arm movement
     'KeyW': 'w', 'KeyS': 's', 'KeyA': 'a', 'KeyD': 'd',
-    'KeyQ': 'q', 'KeyE': 'e', 'KeyZ': 'z', 'KeyX': 'x',
-    'KeyF': 'f',
-    // Right arm  
+    'KeyQ': 'q', 'KeyE': 'e',
+    // Left arm wrist
+    'KeyZ': 'z', 'KeyX': 'x',  // wrist roll
+    'KeyR': 'r', 'KeyT': 't',  // wrist flex
+    'KeyF': 'f',               // gripper
+    'Tab': 'tab',              // toggle position control
+    // Right arm movement
     'KeyI': 'i', 'KeyK': 'k', 'KeyJ': 'j', 'KeyL': 'l',
-    'KeyU': 'u', 'KeyO': 'o', 'KeyN': 'n', 'KeyM': 'm',
-    'Semicolon': ';',
+    'KeyU': 'u', 'KeyO': 'o',
+    // Right arm wrist
+    'KeyN': 'n', 'KeyM': 'm',  // wrist roll
+    'KeyH': 'h', 'KeyY': 'y',  // wrist flex
+    'Semicolon': ';',          // gripper
+    'Enter': 'enter',          // toggle position control
     // Global
     'Escape': 'esc'
   };

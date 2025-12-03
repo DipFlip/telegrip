@@ -134,6 +134,10 @@
             <div class="engagement-status">
               <span id="engagementStatusText">Motors Disengaged</span>
             </div>
+            <div class="connection-hint" id="connectionHint">Click Connect to start telegrip</div>
+            <div class="connection-warning" id="connectionWarning">
+              ⚠️ The arms are not engaged until you click Connect
+            </div>
           </div>
         </div>
 
@@ -246,13 +250,13 @@
       </div>
     </div>
 
-    <!-- VR-only content -->
-    <div class="vr-content" id="vrContent">
+    <!-- VR-only content (hidden - using custom start button instead) -->
+    <div class="vr-content" id="vrContent" style="display: none;">
       <div class="vr-title">VR Teleoperation</div>
     </div>
 
     <!-- A-Frame VR Scene -->
-    <a-scene vr-mode-ui="enabled: true;">
+    <a-scene vr-mode-ui="enabled: false;">
       <!-- Passthrough setup -->
       <a-entity webxr-passthrough="referenceSpaceType: local-floor"></a-entity>
 
