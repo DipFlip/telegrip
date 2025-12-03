@@ -568,8 +568,12 @@ document.addEventListener('DOMContentLoaded', (event) => {
 
 function addControllerTrackingButton() {
     if (navigator.xr) {
-        navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-            if (supported) {
+        // Check for either immersive-ar (Quest 3/Pro) or immersive-vr (Quest 2)
+        Promise.all([
+            navigator.xr.isSessionSupported('immersive-ar').catch(() => false),
+            navigator.xr.isSessionSupported('immersive-vr').catch(() => false)
+        ]).then(([arSupported, vrSupported]) => {
+            if (arSupported || vrSupported) {
                 // Create Start Controller Tracking button
                 const startButton = document.createElement('button');
                 startButton.id = 'start-tracking-button';
@@ -673,10 +677,10 @@ function addControllerTrackingButton() {
                 }
 
             } else {
-                console.warn('immersive-ar session not supported by this browser/device.');
+                console.warn('Neither immersive-ar nor immersive-vr supported by this browser/device.');
             }
         }).catch((err) => {
-            console.error('Error checking immersive-ar support:', err);
+            console.error('Error checking XR support:', err);
         });
     } else {
         console.warn('WebXR not supported by this browser.');
