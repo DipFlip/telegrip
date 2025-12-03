@@ -2,6 +2,7 @@
 let isKeyboardEnabled = false;
 let isRobotEngaged = false;
 let currentConfig = {};
+let warningTimeout = null;
 
 // Settings modal functions
 function openSettings() {
@@ -187,17 +188,51 @@ function updateEngagementUI() {
   const engageBtn = document.getElementById('robotEngageBtn');
   const engageBtnText = document.getElementById('engageBtnText');
   const engagementStatusText = document.getElementById('engagementStatusText');
-  
+  const connectionHint = document.getElementById('connectionHint');
+  const connectionWarning = document.getElementById('connectionWarning');
+
   if (isRobotEngaged) {
     engageBtn.classList.add('disconnect');
+    engageBtn.classList.remove('needs-attention');
     engageBtnText.textContent = '🔌 Disconnect Robot';
     engagementStatusText.textContent = 'Motors Engaged';
     engagementStatusText.style.color = '#FFFFFF';
+    if (connectionHint) connectionHint.style.display = 'none';
+    if (connectionWarning) connectionWarning.classList.remove('show');
   } else {
     engageBtn.classList.remove('disconnect');
     engageBtnText.textContent = '🔌 Connect Robot';
     engagementStatusText.textContent = 'Motors Disengaged';
     engagementStatusText.style.color = '#FFFFFF';
+    if (connectionHint) connectionHint.style.display = 'block';
+  }
+}
+
+function showConnectionWarning() {
+  const engageBtn = document.getElementById('robotEngageBtn');
+  const connectionWarning = document.getElementById('connectionWarning');
+
+  if (!isRobotEngaged) {
+    // Add pulsing animation to the connect button
+    engageBtn.classList.add('needs-attention');
+
+    // Show the warning message
+    if (connectionWarning) {
+      connectionWarning.classList.add('show');
+    }
+
+    // Clear any existing timeout
+    if (warningTimeout) {
+      clearTimeout(warningTimeout);
+    }
+
+    // Hide warning and stop pulsing after 5 seconds
+    warningTimeout = setTimeout(() => {
+      engageBtn.classList.remove('needs-attention');
+      if (connectionWarning) {
+        connectionWarning.classList.remove('show');
+      }
+    }, 5000);
   }
 }
 
@@ -310,10 +345,16 @@ function handleKeyDown(event) {
   if (isControlKey(event.code)) {
     event.preventDefault();
   }
-  
+
+  // Show warning if robot is not connected and user presses control keys
+  if (isControlKey(event.code) && !isRobotEngaged) {
+    showConnectionWarning();
+    return;
+  }
+
   // Only handle keys if keyboard control is enabled and we're focused on the page
   if (!isKeyboardEnabled || pressedKeys.has(event.code)) return;
-  
+
   if (isControlKey(event.code)) {
     pressedKeys.add(event.code);
     sendKeyCommand(event.code, 'press');
