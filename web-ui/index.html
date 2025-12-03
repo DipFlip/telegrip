@@ -250,13 +250,13 @@
       </div>
     </div>
 
-    <!-- VR-only content -->
-    <div class="vr-content" id="vrContent">
+    <!-- VR-only content (hidden - using custom start button instead) -->
+    <div class="vr-content" id="vrContent" style="display: none;">
       <div class="vr-title">VR Teleoperation</div>
     </div>
 
     <!-- A-Frame VR Scene -->
-    <a-scene vr-mode-ui="enabled: true;">
+    <a-scene vr-mode-ui="enabled: false;">
       <!-- Passthrough setup -->
       <a-entity webxr-passthrough="referenceSpaceType: local-floor"></a-entity>
 

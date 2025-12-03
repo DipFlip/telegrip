@@ -600,17 +600,58 @@ function addControllerTrackingButton() {
                     startButton.style.transform = 'translate(-50%, -50%) scale(1)';
                 });
 
-                startButton.onclick = () => {
-                    console.log('Start Controller Tracking button clicked. Requesting session via A-Frame...');
+                startButton.onclick = async () => {
+                    console.log('Start Controller Tracking button clicked.');
                     const sceneEl = document.querySelector('a-scene');
-                    if (sceneEl) {
-                        // Use A-Frame's enterVR to handle session start
-                        sceneEl.enterVR(true).catch((err) => {
-                            console.error('A-Frame failed to enter VR/AR:', err);
-                            alert(`Failed to start AR session via A-Frame: ${err.message}`);
-                        });
-                    } else {
-                         console.error('A-Frame scene not found for enterVR call!');
+                    if (!sceneEl) {
+                        console.error('A-Frame scene not found for enterVR call!');
+                        return;
+                    }
+
+                    // Update button to show we're connecting
+                    startButton.textContent = 'Connecting...';
+                    startButton.disabled = true;
+
+                    try {
+                        // Check if robot is already connected
+                        const statusResponse = await fetch('/api/status');
+                        const status = await statusResponse.json();
+
+                        if (!status.robotEngaged) {
+                            console.log('Robot not connected. Connecting arms first...');
+                            startButton.textContent = 'Connecting Arms...';
+
+                            // Connect the robot arms
+                            const connectResponse = await fetch('/api/robot', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({ action: 'connect' })
+                            });
+                            const connectResult = await connectResponse.json();
+
+                            if (!connectResult.success) {
+                                throw new Error(connectResult.error || 'Failed to connect robot arms');
+                            }
+                            console.log('Robot arms connected successfully.');
+
+                            // Wait a moment for arms to initialize
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        } else {
+                            console.log('Robot already connected.');
+                        }
+
+                        // Now enter VR mode
+                        console.log('Requesting VR session via A-Frame...');
+                        startButton.textContent = 'Starting VR...';
+                        await sceneEl.enterVR(true);
+                    } catch (err) {
+                        console.error('Failed to start controller tracking:', err);
+                        alert(`Failed to start: ${err.message}`);
+                        // Reset button state
+                        startButton.textContent = 'Start Controller Tracking';
+                        startButton.disabled = false;
                     }
                 };
 

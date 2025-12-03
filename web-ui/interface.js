@@ -301,33 +301,27 @@ function isVRMode() {
 // Update UI based on device
 function updateUIForDevice() {
   const desktopInterface = document.getElementById('desktopInterface');
-  const vrContent = document.getElementById('vrContent');
-  
+
   if (isVRMode()) {
     desktopInterface.style.display = 'none';
-    vrContent.style.display = 'none';
   } else {
     // Check if this is a VR-capable device
     if (navigator.xr) {
       navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
         if (supported) {
-          // VR-capable device - show VR interface
+          // VR-capable device - hide desktop interface (custom button in vr_app.js handles VR)
           desktopInterface.style.display = 'none';
-          vrContent.style.display = 'block';
         } else {
           // Not VR-capable - show desktop interface
           desktopInterface.style.display = 'block';
-          vrContent.style.display = 'none';
         }
       }).catch(() => {
         // Fallback to desktop interface if XR check fails
         desktopInterface.style.display = 'block';
-        vrContent.style.display = 'none';
       });
     } else {
       // No XR support - show desktop interface
       desktopInterface.style.display = 'block';
-      vrContent.style.display = 'none';
     }
   }
 }
