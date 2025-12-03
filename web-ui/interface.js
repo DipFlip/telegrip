@@ -473,4 +473,113 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Handle window resize
-window.addEventListener('resize', updateUIForDevice); 
+window.addEventListener('resize', updateUIForDevice);
+
+// Switch between desktop and VR views
+function switchToVrView() {
+  const desktopInterface = document.getElementById('desktopInterface');
+  desktopInterface.style.display = 'none';
+  // The VR start button should already be visible or will be created by vr_app.js
+  // Trigger the button creation if not already done
+  if (!document.getElementById('start-tracking-button')) {
+    // Create a simple fallback button for non-XR devices
+    createFallbackVrButton();
+  }
+  showBackToDesktopButton();
+}
+
+function switchToDesktopView() {
+  const desktopInterface = document.getElementById('desktopInterface');
+  desktopInterface.style.display = 'block';
+  hideBackToDesktopButton();
+}
+
+function showBackToDesktopButton() {
+  let backBtn = document.getElementById('back-to-desktop-button');
+  if (!backBtn) {
+    backBtn = document.createElement('button');
+    backBtn.id = 'back-to-desktop-button';
+    backBtn.textContent = '← Back to Desktop View';
+    backBtn.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 24px;
+      font-size: 16px;
+      background-color: #666;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      z-index: 9998;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    `;
+    backBtn.onclick = switchToDesktopView;
+    document.body.appendChild(backBtn);
+  }
+  backBtn.style.display = 'block';
+}
+
+function hideBackToDesktopButton() {
+  const backBtn = document.getElementById('back-to-desktop-button');
+  if (backBtn) {
+    backBtn.style.display = 'none';
+  }
+}
+
+function createFallbackVrButton() {
+  const startButton = document.createElement('button');
+  startButton.id = 'start-tracking-button';
+  startButton.textContent = 'Start Controller Tracking';
+  startButton.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 20px 40px;
+    font-size: 20px;
+    font-weight: bold;
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    z-index: 9999;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+  `;
+  startButton.onclick = async () => {
+    const sceneEl = document.querySelector('a-scene');
+    if (sceneEl) {
+      startButton.textContent = 'Connecting...';
+      startButton.disabled = true;
+      try {
+        // Check if robot is already connected
+        const statusResponse = await fetch('/api/status');
+        const status = await statusResponse.json();
+        if (!status.robotEngaged) {
+          startButton.textContent = 'Connecting Arms...';
+          const connectResponse = await fetch('/api/robot', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'connect' })
+          });
+          const connectResult = await connectResponse.json();
+          if (!connectResult.success) {
+            throw new Error(connectResult.error || 'Failed to connect robot arms');
+          }
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        startButton.textContent = 'Starting VR...';
+        await sceneEl.enterVR(true);
+      } catch (err) {
+        alert(`Failed to start: ${err.message}`);
+        startButton.textContent = 'Start Controller Tracking';
+        startButton.disabled = false;
+      }
+    } else {
+      alert('VR scene not available. Please reload the page.');
+    }
+  };
+  document.body.appendChild(startButton);
+} 

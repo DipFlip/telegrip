@@ -662,6 +662,11 @@ function addControllerTrackingButton() {
                 document.body.appendChild(startButton);
                 console.log('Official "Start Controller Tracking" button added.');
 
+                // Show the back to desktop button (function defined in interface.js)
+                if (typeof showBackToDesktopButton === 'function') {
+                    showBackToDesktopButton();
+                }
+
                 // Listen for VR session events to hide/show start button
                 const sceneEl = document.querySelector('a-scene');
                 if (sceneEl) {
