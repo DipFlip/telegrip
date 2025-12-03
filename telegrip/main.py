@@ -441,7 +441,8 @@ class HTTPSServer:
             
             # Only log if INFO level or more verbose
             if getattr(logging, self.config.log_level.upper()) <= logging.INFO:
-                logger.info(f"HTTPS server started on {self.config.host_ip}:{self.config.https_port}")
+                host_display = get_local_ip() if self.config.host_ip == "0.0.0.0" else self.config.host_ip
+                logger.info(f"HTTPS server started on https://{host_display}:{self.config.https_port}")
             
         except Exception as e:
             logger.error(f"Failed to start HTTPS server: {e}")
@@ -477,6 +478,9 @@ class TelegripSystem:
 
         # Set up cross-references
         self.control_loop.web_keyboard_handler = self.web_keyboard_handler
+
+        # Set up disconnect callback for ESC key
+        self.web_keyboard_handler.disconnect_callback = lambda: self.add_control_command("robot_disconnect")
         
         # Tasks
         self.tasks = []
@@ -596,6 +600,9 @@ class TelegripSystem:
             # Set up cross-references
             self.control_loop.web_keyboard_handler = self.web_keyboard_handler
 
+            # Set up disconnect callback for ESC key
+            self.web_keyboard_handler.disconnect_callback = lambda: self.add_control_command("robot_disconnect")
+
             # Clear old tasks
             self.tasks = []
 
@@ -703,36 +710,66 @@ class TelegripSystem:
         """Stop all system components."""
         logger.info("Shutting down teleoperation system...")
         self.is_running = False
-        
+
+        # Stop VR server first to close websocket connections (unblocks any waiting handlers)
+        try:
+            await asyncio.wait_for(self.vr_server.stop(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("VR server stop timed out")
+        except Exception as e:
+            logger.warning(f"Error stopping VR server: {e}")
+
         # Cancel all tasks
         for task in self.tasks:
             task.cancel()
-        
+
         # Wait for tasks to complete with timeout
         if self.tasks:
             try:
                 await asyncio.wait_for(
-                    asyncio.gather(*self.tasks, return_exceptions=True), 
-                    timeout=5.0
+                    asyncio.gather(*self.tasks, return_exceptions=True),
+                    timeout=2.0
                 )
             except asyncio.TimeoutError:
                 logger.warning("Some tasks did not complete within timeout")
-        
-        # Stop components in reverse order
-        await self.control_loop.stop()
-        await self.web_keyboard_handler.stop()
-        await self.vr_server.stop()
-        await self.https_server.stop()
+
+        # Stop remaining components
+        try:
+            await asyncio.wait_for(self.control_loop.stop(), timeout=3.0)
+        except asyncio.TimeoutError:
+            logger.warning("Control loop stop timed out")
+        except Exception as e:
+            logger.warning(f"Error stopping control loop: {e}")
+
+        try:
+            await asyncio.wait_for(self.web_keyboard_handler.stop(), timeout=1.0)
+        except asyncio.TimeoutError:
+            logger.warning("Web keyboard handler stop timed out")
+        except Exception as e:
+            logger.warning(f"Error stopping web keyboard handler: {e}")
+
+        try:
+            await asyncio.wait_for(self.https_server.stop(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("HTTPS server stop timed out")
+        except Exception as e:
+            logger.warning(f"Error stopping HTTPS server: {e}")
 
         logger.info("Teleoperation system shutdown complete")
 
 
-def signal_handler(signum, frame):
-    """Handle shutdown signals."""
-    logger.info(f"Received signal {signum}")
-    # Use sys.exit instead of raising KeyboardInterrupt directly
-    # This allows finally blocks to execute properly
-    raise SystemExit(0)
+def create_signal_handler(system: 'TelegripSystem', loop: asyncio.AbstractEventLoop):
+    """Create a signal handler that properly stops the system."""
+    def signal_handler(signum, frame):
+        """Handle shutdown signals."""
+        logger.info(f"Received signal {signum}")
+        system.is_running = False
+        # Cancel all tasks from the event loop
+        for task in system.tasks:
+            loop.call_soon_threadsafe(task.cancel)
+        # Raise SystemExit to break out of blocking operations
+        raise SystemExit(0)
+    return signal_handler
 
 
 def parse_arguments():
@@ -829,11 +866,10 @@ async def main():
             level=log_level,
             format='%(message)s'
         )
-    
-    # Setup signal handlers
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
+
+    # Suppress noisy websockets library logging (invalid HTTP requests to WS port)
+    logging.getLogger('websockets').setLevel(logging.WARNING)
+
     config = create_config_from_args(args)
 
     # Ensure SSL certificates exist (generate if needed for first-time startup)
@@ -865,7 +901,13 @@ async def main():
     
     # Create and start teleoperation system
     system = TelegripSystem(config)
-    
+
+    # Setup signal handlers with reference to system and event loop
+    loop = asyncio.get_event_loop()
+    signal_handler = create_signal_handler(system, loop)
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     try:
         await system.start()
     except (KeyboardInterrupt, SystemExit):
@@ -888,6 +930,19 @@ async def main():
         except (asyncio.CancelledError, SystemExit):
             # Ignore cancelled/exit errors during shutdown
             pass
+
+        # Suppress SSL transport errors during event loop cleanup
+        def ignore_ssl_errors(loop, context):
+            # Ignore "Bad file descriptor" and "Event loop is closed" errors during shutdown
+            if 'exception' in context:
+                exc = context['exception']
+                if isinstance(exc, (OSError, RuntimeError)):
+                    return
+            # Log other errors normally
+            loop.default_exception_handler(context)
+
+        loop.set_exception_handler(ignore_ssl_errors)
+
         if log_level > logging.INFO:
             print("✅ Shutdown complete.")
 

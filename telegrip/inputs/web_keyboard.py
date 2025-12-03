@@ -30,6 +30,9 @@ class WebKeyboardHandler(BaseInputProvider):
         # Reference to robot interface (will be set by control loop)
         self.robot_interface = None
 
+        # Callback for disconnect command (will be set by TelegripSystem)
+        self.disconnect_callback = None
+
         # Control state for both arms (VR-like behavior)
         self.left_arm_state = {
             "origin_position": None,
@@ -272,7 +275,9 @@ class WebKeyboardHandler(BaseInputProvider):
                 logger.info(f"RIGHT arm position control: {'ACTIVATED' if self.right_arm_state['position_control_active'] else 'DEACTIVATED'} (web)")
                 self._send_mode_change_goal("right")
             elif key == 'esc':
-                logger.info("ESC pressed via web")
+                logger.info("ESC pressed via web - disconnecting robot")
+                if self.disconnect_callback:
+                    self.disconnect_callback()
 
         except Exception as e:
             logger.error(f"Error handling web key press '{key}': {e}")

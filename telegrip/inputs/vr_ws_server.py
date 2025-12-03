@@ -73,7 +73,20 @@ class VRWebSocketServer(BaseInputProvider):
         # Robot state tracking (for relative position calculation)
         self.left_arm_origin_position = None
         self.right_arm_origin_position = None
-    
+
+    def _get_local_ip(self) -> str:
+        """Get the local IP address of this machine."""
+        import socket
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                s.connect(("8.8.8.8", 80))
+                return s.getsockname()[0]
+        except Exception:
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except Exception:
+                return "localhost"
+
     def setup_ssl(self) -> Optional[ssl.SSLContext]:
         """Setup SSL context for WebSocket server."""
         # Automatically generate SSL certificates if they don't exist
@@ -107,22 +120,60 @@ class VRWebSocketServer(BaseInputProvider):
         
         host = self.config.host_ip
         port = self.config.websocket_port
-        
+        self._browser_warning_shown = False
+
         try:
             self.server = await websockets.serve(
-                self.websocket_handler, 
-                host, 
-                port, 
-                ssl=ssl_context
+                self.websocket_handler,
+                host,
+                port,
+                ssl=ssl_context,
+                process_request=self._process_request
             )
             self.is_running = True
-            logger.info(f"VR WebSocket server running on wss://{host}:{port}")
+            host_display = self._get_local_ip() if host == "0.0.0.0" else host
+            logger.info(f"VR WebSocket server running on wss://{host_display}:{port}")
         except Exception as e:
             logger.error(f"Failed to start WebSocket server: {e}")
-    
+
+    async def _process_request(self, connection, request):
+        """Process incoming requests and detect browser visits to the WebSocket port."""
+        # Check if this looks like a browser request (not a proper WebSocket upgrade)
+        # In newer websockets versions, request.headers is a Headers object
+        headers = request.headers
+        connection_header = headers.get("Connection", "")
+        upgrade_header = headers.get("Upgrade", "")
+
+        # Proper WebSocket requests have "Upgrade" in Connection header and "websocket" in Upgrade header
+        is_websocket_request = (
+            "upgrade" in connection_header.lower() and
+            "websocket" in upgrade_header.lower()
+        )
+
+        if not is_websocket_request:
+            # Only show warning once to avoid spam
+            if not self._browser_warning_shown:
+                self._browser_warning_shown = True
+                host_display = self._get_local_ip() if self.config.host_ip == "0.0.0.0" else self.config.host_ip
+                print(f"\n⚠️  Someone is trying to open port {self.config.websocket_port} in a browser.")
+                print(f"   This port is for VR WebSocket connections only.")
+                print(f"   The web UI is at: https://{host_display}:{self.config.https_port}\n")
+
+        # Return None to let websockets library handle the request normally
+        # (it will reject non-WebSocket requests with 426 Upgrade Required)
+        return None
+
     async def stop(self):
         """Stop the WebSocket server."""
         self.is_running = False
+
+        # Close all active client connections to unblock websocket_handler
+        for client in list(self.clients):
+            try:
+                await client.close()
+            except Exception:
+                pass
+
         if self.server:
             self.server.close()
             await self.server.wait_closed()
