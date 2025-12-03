@@ -177,11 +177,14 @@ class ControlLoop:
     async def stop(self):
         """Stop the control loop."""
         self.is_running = False
-        
-        # Cleanup
+
+        # Cleanup - disengage robot first (returns to home and disables torque)
         if self.robot_interface:
+            if self.robot_interface.is_engaged:
+                logger.info("🛑 Disengaging robot before shutdown...")
+                self.robot_interface.disengage()
             self.robot_interface.disconnect()
-        
+
         if self.visualizer:
             self.visualizer.disconnect()
     

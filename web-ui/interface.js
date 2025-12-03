@@ -301,8 +301,9 @@ function updateUIForDevice() {
 let pressedKeys = new Set();
 
 // Add keyboard event listeners for web-based control
-document.addEventListener('keydown', handleKeyDown);
-document.addEventListener('keyup', handleKeyUp);
+// Use capture phase to intercept keys before browser handles them (e.g., F for fullscreen)
+document.addEventListener('keydown', handleKeyDown, { capture: true });
+document.addEventListener('keyup', handleKeyUp, { capture: true });
 
 function handleKeyDown(event) {
   // Prevent default browser behavior for our control keys regardless of keyboard state

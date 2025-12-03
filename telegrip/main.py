@@ -730,7 +730,9 @@ class TelegripSystem:
 def signal_handler(signum, frame):
     """Handle shutdown signals."""
     logger.info(f"Received signal {signum}")
-    raise KeyboardInterrupt()
+    # Use sys.exit instead of raising KeyboardInterrupt directly
+    # This allows finally blocks to execute properly
+    raise SystemExit(0)
 
 
 def parse_arguments():
@@ -866,7 +868,7 @@ async def main():
     
     try:
         await system.start()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         if log_level <= logging.INFO:
             logger.info("Received interrupt signal")
         else:
@@ -883,8 +885,8 @@ async def main():
     finally:
         try:
             await system.stop()
-        except asyncio.CancelledError:
-            # Ignore cancelled errors during shutdown
+        except (asyncio.CancelledError, SystemExit):
+            # Ignore cancelled/exit errors during shutdown
             pass
         if log_level > logging.INFO:
             print("✅ Shutdown complete.")
@@ -894,10 +896,10 @@ def main_cli():
     """Console script entry point for pip-installed package."""
     try:
         asyncio.run(main())
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         print("\nShutdown complete.")
     except asyncio.CancelledError:
-        # Handle cancelled error from restart scenarios  
+        # Handle cancelled error from restart scenarios
         pass
     except Exception as e:
         logger.error(f"Fatal error: {e}")
