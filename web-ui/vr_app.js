@@ -662,6 +662,9 @@ function addControllerTrackingButton() {
                 document.body.appendChild(startButton);
                 console.log('Official "Start Controller Tracking" button added.');
 
+                // Add VR instructions panel
+                createVrInstructionsPanel();
+
                 // Show the back to desktop button (function defined in interface.js)
                 if (typeof showBackToDesktopButton === 'function') {
                     showBackToDesktopButton();
@@ -689,5 +692,59 @@ function addControllerTrackingButton() {
         });
     } else {
         console.warn('WebXR not supported by this browser.');
+    }
+}
+
+function createVrInstructionsPanel() {
+    // Don't create if already exists
+    if (document.getElementById('vr-instructions-panel')) return;
+
+    const panel = document.createElement('div');
+    panel.id = 'vr-instructions-panel';
+    panel.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        max-width: 90%;
+        width: 600px;
+        background: rgba(15, 52, 96, 0.95);
+        border-radius: 12px;
+        padding: 20px;
+        color: white;
+        z-index: 9998;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        border: 1px solid rgba(255,255,255,0.1);
+    `;
+
+    panel.innerHTML = `
+        <h2 style="margin: 0 0 15px 0; font-size: 1.2em; text-align: center;">VR Controller Instructions</h2>
+        <div style="display: flex; gap: 15px; align-items: flex-start; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 150px; text-align: center;">
+                <img src="media/telegrip_instructions.jpg" alt="VR Controller Instructions"
+                     style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+            </div>
+            <div style="flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 8px; font-size: 14px;">
+                <div style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 6px;">
+                    <strong style="color: #ee4d9a;">Grip Button:</strong> Hold to move the arm
+                </div>
+                <div style="padding: 8px; background: rgba(255,255,255,0.1); border-radius: 6px;">
+                    <strong style="color: #9af58c;">Trigger:</strong> Hold to close gripper
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Hide panel when entering VR
+    const sceneEl = document.querySelector('a-scene');
+    if (sceneEl) {
+        sceneEl.addEventListener('enter-vr', () => {
+            panel.style.display = 'none';
+        });
+        sceneEl.addEventListener('exit-vr', () => {
+            panel.style.display = 'block';
+        });
     }
 } 

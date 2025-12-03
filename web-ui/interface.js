@@ -529,6 +529,11 @@ function hideBackToDesktopButton() {
 }
 
 function createFallbackVrButton() {
+  // Also create the instructions panel if the function exists
+  if (typeof createVrInstructionsPanel === 'function') {
+    createVrInstructionsPanel();
+  }
+
   const startButton = document.createElement('button');
   startButton.id = 'start-tracking-button';
   startButton.textContent = 'Start Controller Tracking';
