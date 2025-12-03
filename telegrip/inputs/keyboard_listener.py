@@ -8,7 +8,6 @@ import numpy as np
 import logging
 import time
 from typing import Dict
-from pynput import keyboard
 import threading
 
 from .base import BaseInputProvider, ControlGoal, ControlMode
@@ -23,10 +22,13 @@ class KeyboardListener(BaseInputProvider):
     def __init__(self, command_queue: asyncio.Queue, config: TelegripConfig):
         super().__init__(command_queue)
         self.config = config
-        
+
         # Reference to robot interface (will be set by control loop)
         self.robot_interface = None
-        
+
+        # Keyboard module (imported lazily to defer X connection)
+        self._keyboard_module = None
+
         # Keyboard listener
         self.listener = None
         self.listener_thread = None
@@ -81,11 +83,20 @@ class KeyboardListener(BaseInputProvider):
         if not self.config.enable_keyboard:
             logger.info("Keyboard listener disabled in configuration")
             return
-        
+
+        # Import pynput here to defer X connection requirement until actually needed
+        try:
+            from pynput import keyboard as pynput_keyboard
+            self._keyboard_module = pynput_keyboard
+        except ImportError as e:
+            logger.error(f"Failed to import pynput keyboard module: {e}")
+            logger.error("Keyboard control will be disabled. Make sure DISPLAY is set and X server is running.")
+            return
+
         self.is_running = True
-        
+
         # Start keyboard listener in a separate thread
-        self.listener = keyboard.Listener(
+        self.listener = self._keyboard_module.Listener(
             on_press=self.on_press,
             on_release=self.on_release
         )
@@ -301,7 +312,7 @@ class KeyboardListener(BaseInputProvider):
         
         except AttributeError:
             # Special keys
-            if key == keyboard.Key.tab:
+            if key == self._keyboard_module.Key.tab:
                 # Toggle left arm position control
                 self.left_arm_state["position_control_active"] = not self.left_arm_state["position_control_active"]
                 
@@ -311,7 +322,7 @@ class KeyboardListener(BaseInputProvider):
                     logger.info("LEFT arm position control: DEACTIVATED")
                 
                 self._send_mode_change_goal("left")
-            elif key == keyboard.Key.enter:
+            elif key == self._keyboard_module.Key.enter:
                 # Toggle right arm position control
                 self.right_arm_state["position_control_active"] = not self.right_arm_state["position_control_active"]
                 
@@ -321,7 +332,7 @@ class KeyboardListener(BaseInputProvider):
                     logger.info("RIGHT arm position control: DEACTIVATED")
                 
                 self._send_mode_change_goal("right")
-            elif key == keyboard.Key.esc:
+            elif key == self._keyboard_module.Key.esc:
                 logger.info("ESC pressed. Stopping keyboard control.")
                 self.is_running = False
                 return False  # Stop the listener

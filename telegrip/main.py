@@ -824,7 +824,12 @@ async def main():
     signal.signal(signal.SIGTERM, signal_handler)
     
     config = create_config_from_args(args)
-    
+
+    # Ensure SSL certificates exist (generate if needed for first-time startup)
+    if not config.ensure_ssl_certificates():
+        logger.error("Failed to ensure SSL certificates are available")
+        sys.exit(1)
+
     # Log configuration (only if INFO level or more verbose)
     if log_level <= logging.INFO:
         logger.info("Starting with configuration:")
