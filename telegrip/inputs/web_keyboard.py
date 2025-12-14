@@ -10,8 +10,8 @@ import logging
 import time
 from typing import Dict, Optional
 
-from .base import BaseInputProvider, ControlGoal, ControlMode
-from ..config import TelegripConfig, POS_STEP, ANGLE_STEP, WRIST_ROLL_INDEX, WRIST_FLEX_INDEX
+from .base import BaseInputProvider, ControlGoal, ControlMode, BaseControlGoal
+from ..config import TelegripConfig, POS_STEP, ANGLE_STEP, WRIST_ROLL_INDEX, WRIST_FLEX_INDEX, BASE_SPEED_LEVELS
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,14 @@ class WebKeyboardHandler(BaseInputProvider):
 
         # Control loop task
         self._control_task = None
+
+        # Base (wheel) control state
+        self.base_state = {
+            "x_vel": 0.0,      # Forward/backward
+            "y_vel": 0.0,      # Strafe left/right
+            "theta_vel": 0.0,  # Rotation
+            "shift_held": False,  # Shift modifier for strafe mode
+        }
 
     def set_robot_interface(self, robot_interface):
         """Set reference to robot interface for getting current positions."""
@@ -279,6 +287,43 @@ class WebKeyboardHandler(BaseInputProvider):
                 if self.disconnect_callback:
                     self.disconnect_callback()
 
+            # --- BASE (WHEEL) CONTROL ---
+            # Shift modifier for strafe mode
+            elif key == 'shift':
+                self.base_state["shift_held"] = True
+
+            # Arrow keys for base movement
+            elif key == 'arrowup':
+                # Forward
+                self.base_state["x_vel"] = 1.0  # Will be scaled by speed level
+            elif key == 'arrowdown':
+                # Backward
+                self.base_state["x_vel"] = -1.0
+            elif key == 'arrowleft':
+                if self.base_state["shift_held"]:
+                    # Strafe left
+                    self.base_state["y_vel"] = 1.0
+                else:
+                    # Rotate left (counter-clockwise)
+                    self.base_state["theta_vel"] = 1.0
+            elif key == 'arrowright':
+                if self.base_state["shift_held"]:
+                    # Strafe right
+                    self.base_state["y_vel"] = -1.0
+                else:
+                    # Rotate right (clockwise)
+                    self.base_state["theta_vel"] = -1.0
+
+            # Speed control
+            elif key == 'pageup':
+                if self.robot_interface:
+                    new_index = self.robot_interface.increase_base_speed()
+                    logger.info(f"🚀 Base speed UP: level {new_index + 1}/{len(BASE_SPEED_LEVELS)}")
+            elif key == 'pagedown':
+                if self.robot_interface:
+                    new_index = self.robot_interface.decrease_base_speed()
+                    logger.info(f"🐢 Base speed DOWN: level {new_index + 1}/{len(BASE_SPEED_LEVELS)}")
+
         except Exception as e:
             logger.error(f"Error handling web key press '{key}': {e}")
 
@@ -318,6 +363,15 @@ class WebKeyboardHandler(BaseInputProvider):
             elif key in ('h', 'y'):
                 self.right_arm_state["delta_wrist_flex"] = 0
                 self._check_if_all_keys_released("right")
+
+            # --- BASE (WHEEL) CONTROL RELEASE ---
+            elif key == 'shift':
+                self.base_state["shift_held"] = False
+            elif key in ('arrowup', 'arrowdown'):
+                self.base_state["x_vel"] = 0.0
+            elif key in ('arrowleft', 'arrowright'):
+                self.base_state["y_vel"] = 0.0
+                self.base_state["theta_vel"] = 0.0
 
         except Exception as e:
             logger.error(f"Error handling web key release '{key}': {e}")
@@ -404,6 +458,35 @@ class WebKeyboardHandler(BaseInputProvider):
                                 }
                             )
                             await self.send_goal(goal)
+
+                # Send base control goal if any base movement is active
+                if (self.base_state["x_vel"] != 0 or
+                    self.base_state["y_vel"] != 0 or
+                    self.base_state["theta_vel"] != 0):
+                    # Scale by current speed level
+                    if self.robot_interface:
+                        max_linear = self.robot_interface.get_max_linear_speed()
+                        max_angular = self.robot_interface.get_max_angular_speed()
+                    else:
+                        max_linear = 0.2
+                        max_angular = 60
+
+                    base_goal = BaseControlGoal(
+                        x_vel=self.base_state["x_vel"] * max_linear,
+                        y_vel=self.base_state["y_vel"] * max_linear,
+                        theta_vel=self.base_state["theta_vel"] * max_angular,
+                        metadata={"source": "web_keyboard_base"}
+                    )
+                    await self.send_goal(base_goal)
+                else:
+                    # Send stop command when no base keys pressed (to stop wheels)
+                    base_goal = BaseControlGoal(
+                        x_vel=0.0,
+                        y_vel=0.0,
+                        theta_vel=0.0,
+                        metadata={"source": "web_keyboard_base_stop"}
+                    )
+                    await self.send_goal(base_goal)
 
                 # Control rate: 20Hz
                 await asyncio.sleep(0.05)

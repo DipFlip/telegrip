@@ -387,6 +387,10 @@ function isControlKey(code) {
     'KeyH', 'KeyY',  // wrist flex
     'Semicolon',     // gripper
     'Enter',         // toggle position control
+    // Base (wheel) movement
+    'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
+    'ShiftLeft', 'ShiftRight',  // Shift modifier for strafe
+    'PageUp', 'PageDown',       // Speed control
     // Global
     'Escape'
   ];
@@ -412,6 +416,15 @@ function sendKeyCommand(keyCode, action) {
     'KeyH': 'h', 'KeyY': 'y',  // wrist flex
     'Semicolon': ';',          // gripper
     'Enter': 'enter',          // toggle position control
+    // Base (wheel) movement
+    'ArrowUp': 'arrowup',
+    'ArrowDown': 'arrowdown',
+    'ArrowLeft': 'arrowleft',
+    'ArrowRight': 'arrowright',
+    'ShiftLeft': 'shift',
+    'ShiftRight': 'shift',
+    'PageUp': 'pageup',
+    'PageDown': 'pagedown',
     // Global
     'Escape': 'esc'
   };

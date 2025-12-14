@@ -23,7 +23,24 @@ class ControlGoal:
     wrist_roll_deg: Optional[float] = None        # Wrist roll angle in degrees
     wrist_flex_deg: Optional[float] = None        # Wrist flex (pitch) angle in degrees
     gripper_closed: Optional[bool] = None         # Gripper state (None = no change)
-    
+
+    # Additional data for debugging/monitoring
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class BaseControlGoal:
+    """Control goal for the mobile base (3-wheel omnidirectional drive).
+
+    Velocities are in body frame:
+    - x_vel: Forward/backward velocity (m/s), positive = forward
+    - y_vel: Strafe left/right velocity (m/s), positive = left
+    - theta_vel: Rotational velocity (deg/s), positive = counter-clockwise
+    """
+    x_vel: float = 0.0       # Forward/backward velocity (m/s)
+    y_vel: float = 0.0       # Strafe left/right velocity (m/s)
+    theta_vel: float = 0.0   # Rotational velocity (deg/s)
+
     # Additional data for debugging/monitoring
     metadata: Optional[Dict[str, Any]] = None
 

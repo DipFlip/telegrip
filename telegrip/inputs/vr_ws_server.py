@@ -13,8 +13,8 @@ import logging
 from typing import Dict, Optional, Set
 from scipy.spatial.transform import Rotation as R
 
-from .base import BaseInputProvider, ControlGoal, ControlMode
-from ..config import TelegripConfig
+from .base import BaseInputProvider, ControlGoal, ControlMode, BaseControlGoal
+from ..config import TelegripConfig, BASE_SPEED_LEVELS
 from ..core.kinematics import compute_relative_position
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,9 @@ class VRWebSocketServer(BaseInputProvider):
         # Robot state tracking (for relative position calculation)
         self.left_arm_origin_position = None
         self.right_arm_origin_position = None
+
+        # Base speed control
+        self.base_speed_index = 1  # Default to medium speed
 
     def _get_local_ip(self) -> str:
         """Get the local IP address of this machine."""
@@ -210,24 +213,27 @@ class VRWebSocketServer(BaseInputProvider):
     
     async def process_controller_data(self, data: Dict):
         """Process incoming VR controller data."""
-        
+
         # Handle new dual controller format
         if 'leftController' in data and 'rightController' in data:
             left_data = data['leftController']
             right_data = data['rightController']
-            
+
             # Process left controller
             if left_data.get('position') and (left_data.get('gripActive', False) or left_data.get('trigger', 0) > 0.5):
                 await self.process_single_controller('left', left_data)
             elif not left_data.get('gripActive', False) and self.left_controller.grip_active:
                 await self.handle_grip_release('left')
-            
+
             # Process right controller
             if right_data.get('position') and (right_data.get('gripActive', False) or right_data.get('trigger', 0) > 0.5):
                 await self.process_single_controller('right', right_data)
             elif not right_data.get('gripActive', False) and self.right_controller.grip_active:
                 await self.handle_grip_release('right')
-                
+
+            # Process thumbsticks for base control
+            await self.process_thumbsticks_for_base(left_data, right_data)
+
             return
         
         # Handle legacy single controller format
@@ -347,6 +353,53 @@ class VRWebSocketServer(BaseInputProvider):
                 )
                 await self.send_goal(goal)
     
+    async def process_thumbsticks_for_base(self, left_data: Dict, right_data: Dict):
+        """Process thumbstick inputs for base (wheel) control.
+
+        Left thumbstick: Forward/backward (Y) and strafe left/right (X)
+        Right thumbstick X: Rotation
+
+        Thumbstick magnitude controls speed (0 to max speed level).
+        """
+        # Get thumbstick values (default to 0 if not present)
+        left_thumbstick = left_data.get('thumbstick', {})
+        right_thumbstick = right_data.get('thumbstick', {})
+
+        left_x = left_thumbstick.get('x', 0.0)
+        left_y = left_thumbstick.get('y', 0.0)
+        right_x = right_thumbstick.get('x', 0.0)
+
+        # Apply deadzone (ignore small values to prevent drift)
+        deadzone = 0.15
+        if abs(left_x) < deadzone:
+            left_x = 0.0
+        if abs(left_y) < deadzone:
+            left_y = 0.0
+        if abs(right_x) < deadzone:
+            right_x = 0.0
+
+        # Get current speed level
+        speed_level = BASE_SPEED_LEVELS[self.base_speed_index]
+        max_linear = speed_level["linear"]
+        max_angular = speed_level["angular"]
+
+        # Map thumbstick values to velocities
+        # Left Y -> forward/backward (negate because thumbstick up is negative Y)
+        # Left X -> strafe (positive X = right, so negate for left-positive convention)
+        # Right X -> rotation (positive X = clockwise, so negate for CCW-positive convention)
+        x_vel = -left_y * max_linear      # Forward/backward
+        y_vel = -left_x * max_linear     # Strafe (left positive)
+        theta_vel = -right_x * max_angular  # Rotation (CCW positive)
+
+        # Send base control goal
+        base_goal = BaseControlGoal(
+            x_vel=x_vel,
+            y_vel=y_vel,
+            theta_vel=theta_vel,
+            metadata={"source": "vr_thumbsticks"}
+        )
+        await self.send_goal(base_goal)
+
     async def handle_grip_release(self, hand: str):
         """Handle grip release for a controller."""
         if hand == 'left':

@@ -17,6 +17,10 @@ AFRAME.registerComponent('controller-updater', {
     this.leftTriggerDown = false;
     this.rightTriggerDown = false;
 
+    // Thumbstick state
+    this.leftThumbstick = { x: 0, y: 0 };
+    this.rightThumbstick = { x: 0, y: 0 };
+
     // --- Status reporting ---
     this.lastStatusUpdate = 0;
     this.statusUpdateInterval = 5000; // 5 seconds
@@ -261,6 +265,16 @@ AFRAME.registerComponent('controller-updater', {
         this.rightZAxisRotation = 0; // Reset Z-axis rotation
         this.sendGripRelease('right'); // Send grip release message
     });
+
+    // --- Thumbstick Event Listeners ---
+    this.leftHand.addEventListener('thumbstickmoved', (evt) => {
+        this.leftThumbstick.x = evt.detail.x;
+        this.leftThumbstick.y = evt.detail.y;
+    });
+    this.rightHand.addEventListener('thumbstickmoved', (evt) => {
+        this.rightThumbstick.x = evt.detail.x;
+        this.rightThumbstick.y = evt.detail.y;
+    });
     // --- End Modify Event Listeners ---
 
   },
@@ -404,15 +418,17 @@ AFRAME.registerComponent('controller-updater', {
         position: null,
         rotation: null,
         gripActive: false,
-        trigger: 0
+        trigger: 0,
+        thumbstick: { x: this.leftThumbstick.x, y: this.leftThumbstick.y }
     };
-    
+
     const rightController = {
         hand: 'right',
         position: null,
         rotation: null,
         gripActive: false,
-        trigger: 0
+        trigger: 0,
+        thumbstick: { x: this.rightThumbstick.x, y: this.rightThumbstick.y }
     };
 
     // Update Left Hand Text & Collect Data

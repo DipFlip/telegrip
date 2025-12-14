@@ -13,7 +13,7 @@ from typing import Dict, Optional
 from .config import TelegripConfig, NUM_JOINTS, WRIST_FLEX_INDEX, WRIST_ROLL_INDEX, GRIPPER_INDEX
 from .core.robot_interface import RobotInterface
 # PyBulletVisualizer will be imported on demand
-from .inputs.base import ControlGoal, ControlMode
+from .inputs.base import ControlGoal, ControlMode, BaseControlGoal
 # WebKeyboardHandler will be imported on demand to avoid circular imports
 
 logger = logging.getLogger(__name__)
@@ -220,7 +220,10 @@ class ControlLoop:
             # Process regular control goals
             while not self.command_queue.empty():
                 goal = self.command_queue.get_nowait()
-                await self._execute_goal(goal)
+                if isinstance(goal, BaseControlGoal):
+                    await self._execute_base_goal(goal)
+                else:
+                    await self._execute_goal(goal)
         except Exception as e:
             logger.error(f"Error processing commands: {e}")
             import traceback
@@ -383,7 +386,15 @@ class ControlLoop:
         # Handle gripper control (independent of mode)
         if goal.gripper_closed is not None and self.robot_interface:
             self.robot_interface.set_gripper(goal.arm, goal.gripper_closed)
-    
+
+    async def _execute_base_goal(self, goal: BaseControlGoal):
+        """Execute a base (wheel) control goal."""
+        if not self.robot_interface:
+            return
+
+        # Set base velocities directly - the robot interface will handle kinematics
+        self.robot_interface.set_base_velocities(goal.x_vel, goal.y_vel, goal.theta_vel)
+
     def _update_robot_safely(self):
         """Update robot with current control goals (with error handling)."""
         if not self.robot_interface:
@@ -506,7 +517,7 @@ class ControlLoop:
     @property
     def status(self) -> Dict:
         """Get current control loop status."""
-        return {
+        status = {
             "running": self.is_running,
             "left_arm_mode": self.left_arm.mode.value,
             "right_arm_mode": self.right_arm.mode.value,
@@ -514,4 +525,10 @@ class ControlLoop:
             "left_arm_connected": self.robot_interface.get_arm_connection_status("left") if self.robot_interface else False,
             "right_arm_connected": self.robot_interface.get_arm_connection_status("right") if self.robot_interface else False,
             "visualizer_connected": self.visualizer.is_connected if self.visualizer else False,
-        } 
+        }
+        # Add base control status
+        if self.robot_interface:
+            status["base_speed_index"] = self.robot_interface.base_speed_index
+            status["base_speed_level"] = self.robot_interface.get_current_speed_level()
+            status["base_velocities"] = self.robot_interface.current_base_velocities
+        return status 

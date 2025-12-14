@@ -854,17 +854,20 @@ async def main():
         os.environ['PYBULLET_SUPPRESS_CONSOLE_OUTPUT'] = '1'
         os.environ['PYBULLET_SUPPRESS_WARNINGS'] = '1'
     
+    # Configure logging - force=True ensures it overrides any existing config
     if log_level <= logging.INFO:
         # Verbose mode - show detailed logging with timestamps
         logging.basicConfig(
             level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            force=True
         )
     else:
         # Quiet mode - only show warnings and errors with simple format
         logging.basicConfig(
             level=log_level,
-            format='%(message)s'
+            format='%(message)s',
+            force=True
         )
 
     # Suppress noisy websockets library logging (invalid HTTP requests to WS port)
@@ -877,8 +880,16 @@ async def main():
         logger.error("Failed to ensure SSL certificates are available")
         sys.exit(1)
 
+    # Always show the URL
+    host_display = get_local_ip() if config.host_ip == "0.0.0.0" else config.host_ip
+    print(f"🤖 telegrip starting...")
+    print(f"📱 Open the UI in your browser on:")
+    print(f"   https://{host_display}:{config.https_port}")
+    print(f"📱 Then go to the same address on your VR headset browser")
+
     # Log configuration (only if INFO level or more verbose)
     if log_level <= logging.INFO:
+        print()
         logger.info("Starting with configuration:")
         logger.info(f"  Robot: {'enabled' if config.enable_robot else 'disabled'}")
         logger.info(f"  PyBullet: {'enabled' if config.enable_pybullet else 'disabled'}")
@@ -890,12 +901,6 @@ async def main():
         logger.info(f"  WebSocket Port: {config.websocket_port}")
         logger.info(f"  Robot Ports: {config.follower_ports}")
     else:
-        # Show clean startup message with HTTPS URL
-        host_display = get_local_ip() if config.host_ip == "0.0.0.0" else config.host_ip
-        print(f"🤖 telegrip starting...")
-        print(f"📱 Open the UI in your browser on:")
-        print(f"   https://{host_display}:{config.https_port}")
-        print(f"📱 Then go to the same address on your VR headset browser")
         print(f"💡 Use --log-level info to see detailed output")
         print()
     

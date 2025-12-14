@@ -26,6 +26,7 @@ DEFAULT_CONFIG = {
         "keyfile": "key.pem"
     },
     "robot": {
+        "type": "so100",  # "so100" for 1-2 arms, "xlerobot" for full xlerobot with wheels
         "left_arm": {
             "name": "Left Arm",
             "port": "/dev/ttyACM0",
@@ -133,6 +134,7 @@ KEYFILE = _config_data["ssl"]["keyfile"]
 
 VR_TO_ROBOT_SCALE = _config_data["robot"]["vr_to_robot_scale"]
 SEND_INTERVAL = _config_data["robot"]["send_interval"]
+ROBOT_TYPE = _config_data["robot"].get("type", "so100")  # "so100" or "xlerobot"
 
 POS_STEP = _config_data["control"]["keyboard"]["pos_step"]
 ANGLE_STEP = _config_data["control"]["keyboard"]["angle_step"]
@@ -142,6 +144,23 @@ URDF_PATH = _config_data["paths"]["urdf_path"]
 
 GRIPPER_OPEN_ANGLE = _config_data["gripper"]["open_angle"]
 GRIPPER_CLOSED_ANGLE = _config_data["gripper"]["closed_angle"]
+
+# --- Base (Wheel) Configuration ---
+# Wheel motors on right arm bus (motors 7, 8, 9)
+WHEEL_MOTOR_NAMES = ["base_left_wheel", "base_back_wheel", "base_right_wheel"]
+
+# Wheel physical parameters
+WHEEL_RADIUS = 0.05  # meters (5cm)
+WHEEL_BASE_RADIUS = 0.125  # distance from robot center to each wheel (meters)
+
+# Base speed settings
+BASE_SPEED_LEVELS = [
+    {"linear": 0.1, "angular": 30},   # slow: 0.1 m/s, 30 deg/s
+    {"linear": 0.2, "angular": 60},   # medium: 0.2 m/s, 60 deg/s
+    {"linear": 0.3, "angular": 90},   # fast: 0.3 m/s, 90 deg/s
+    {"linear": 0.5, "angular": 120},  # very fast: 0.5 m/s, 120 deg/s
+]
+DEFAULT_BASE_SPEED_INDEX = 1  # Start at medium speed
 
 # IK Configuration
 USE_REFERENCE_POSES = _config_data["ik"]["use_reference_poses"]
@@ -206,9 +225,10 @@ class TelegripConfig:
     keyfile: str = KEYFILE
     
     # Robot settings
+    robot_type: str = ROBOT_TYPE  # "so100" for 1-2 arms, "xlerobot" for full xlerobot with wheels
     vr_to_robot_scale: float = VR_TO_ROBOT_SCALE
     send_interval: float = SEND_INTERVAL
-    
+
     # Device ports
     follower_ports: Dict[str, str] = None
     

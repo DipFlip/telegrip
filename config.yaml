@@ -24,6 +24,7 @@ network:
 paths:
   urdf_path: URDF/SO100/urdf/so100.urdf
 robot:
+  type: xlerobot  # "so100" for 1-2 arms without wheels, "xlerobot" for full xlerobot with wheels
   left_arm:
     enabled: true
     name: Left Arm
