@@ -126,7 +126,7 @@ class APIHandler(http.server.BaseHTTPRequestHandler):
             # Serve JS files from web-ui directory
             self.serve_file(f'web-ui{self.path}', 'application/javascript')
         elif self.path.endswith('.ico'):
-            self.serve_file(self.path[1:], 'image/x-icon')
+            self.serve_file(f'web-ui{self.path}', 'image/x-icon')
         elif self.path.endswith(('.jpg', '.jpeg')):
             # Serve image files from web-ui directory
             self.serve_file(f'web-ui{self.path}', 'image/jpeg')

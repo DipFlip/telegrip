@@ -37,49 +37,13 @@ AFRAME.registerComponent('controller-updater', {
     this.leftZAxisRotation = 0;
     this.rightZAxisRotation = 0;
 
-    // --- Get hostname dynamically ---
-    const serverHostname = window.location.hostname;
-    const websocketPort = 8442; // Make sure this matches controller_server.py
-    const websocketUrl = `wss://${serverHostname}:${websocketPort}`;
-    console.log(`Attempting WebSocket connection to: ${websocketUrl}`);
-    // !!! IMPORTANT: Replace 'YOUR_LAPTOP_IP' with the actual IP address of your laptop !!!
-    // const websocketUrl = 'ws://YOUR_LAPTOP_IP:8442';
-    try {
-      this.websocket = new WebSocket(websocketUrl);
-      this.websocket.onopen = (event) => {
-        console.log(`WebSocket connected to ${websocketUrl}`);
-        this.reportVRStatus(true);
-      };
-      this.websocket.onerror = (event) => {
-        // More detailed error logging
-        console.error(`WebSocket Error: Event type: ${event.type}`, event);
-        this.reportVRStatus(false);
-      };
-      this.websocket.onclose = (event) => {
-        console.log(`WebSocket disconnected from ${websocketUrl}. Clean close: ${event.wasClean}, Code: ${event.code}, Reason: '${event.reason}'`);
-        // Attempt to log specific error if available (might be limited by browser security)
-        if (!event.wasClean) {
-          console.error('WebSocket closed unexpectedly.');
-        }
-        this.websocket = null; // Clear the reference
-        this.reportVRStatus(false);
-      };
-      this.websocket.onmessage = (event) => {
-        console.log(`WebSocket message received: ${event.data}`); // Log any messages from server
-      };
-    } catch (error) {
-        console.error(`Failed to create WebSocket connection to ${websocketUrl}:`, error);
-        this.reportVRStatus(false);
-    }
-    // --- End WebSocket Setup ---
-
     // --- VR Status Reporting Function ---
     this.reportVRStatus = (connected) => {
       // Update global status if available (for desktop interface)
       if (typeof updateStatus === 'function') {
         updateStatus({ vrConnected: connected });
       }
-      
+
       // Also try to notify parent window if in iframe
       try {
         if (window.parent && window.parent !== window) {
@@ -92,6 +56,56 @@ AFRAME.registerComponent('controller-updater', {
         // Ignore cross-origin errors
       }
     };
+
+    // --- WebSocket Connection Function (only called when entering VR) ---
+    this.connectWebSocket = () => {
+      if (this.websocket) {
+        return; // Already connected
+      }
+      const serverHostname = window.location.hostname;
+      const websocketPort = 8442;
+      const websocketUrl = `wss://${serverHostname}:${websocketPort}`;
+      console.log(`Attempting WebSocket connection to: ${websocketUrl}`);
+      try {
+        this.websocket = new WebSocket(websocketUrl);
+        this.websocket.onopen = (event) => {
+          console.log(`WebSocket connected to ${websocketUrl}`);
+          this.reportVRStatus(true);
+        };
+        this.websocket.onerror = (event) => {
+          console.error(`WebSocket Error: Event type: ${event.type}`, event);
+          this.reportVRStatus(false);
+        };
+        this.websocket.onclose = (event) => {
+          console.log(`WebSocket disconnected from ${websocketUrl}. Clean close: ${event.wasClean}, Code: ${event.code}, Reason: '${event.reason}'`);
+          if (!event.wasClean) {
+            console.error('WebSocket closed unexpectedly.');
+          }
+          this.websocket = null;
+          this.reportVRStatus(false);
+        };
+        this.websocket.onmessage = (event) => {
+          console.log(`WebSocket message received: ${event.data}`);
+        };
+      } catch (error) {
+        console.error(`Failed to create WebSocket connection to ${websocketUrl}:`, error);
+        this.reportVRStatus(false);
+      }
+    };
+
+    // --- Connect WebSocket when entering VR ---
+    const sceneEl = this.el.sceneEl;
+    sceneEl.addEventListener('enter-vr', () => {
+      console.log('Entering VR - connecting WebSocket');
+      this.connectWebSocket();
+    });
+    sceneEl.addEventListener('exit-vr', () => {
+      console.log('Exiting VR - closing WebSocket');
+      if (this.websocket) {
+        this.websocket.close();
+        this.websocket = null;
+      }
+    });
 
     if (!this.leftHand || !this.rightHand || !this.leftHandInfoText || !this.rightHandInfoText) {
       console.error("Controller or text entities not found!");
