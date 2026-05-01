@@ -177,24 +177,30 @@ class PyBulletVisualizer:
         if not os.path.exists(self.urdf_path):
             logger.error(f"URDF file not found: {self.urdf_path}")
             return False
-        
+
+        # SO101 URDF has forward axis along +X; rotate +90° around Z to align with +Y (same as SO100)
+        if "so101" in self.urdf_path.lower():
+            base_orientation = [0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4)]
+        else:
+            base_orientation = [0, 0, 0, 1]
+
         try:
             if should_suppress_output:
                 with suppress_stdout_stderr():
-                    self.robot_ids['left'] = p.loadURDF(self.urdf_path, [0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
+                    self.robot_ids['left'] = p.loadURDF(self.urdf_path, [0.2, 0, 0], base_orientation, useFixedBase=1)
             else:
-                self.robot_ids['left'] = p.loadURDF(self.urdf_path, [0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
+                self.robot_ids['left'] = p.loadURDF(self.urdf_path, [0.2, 0, 0], base_orientation, useFixedBase=1)
         except p.error as e:
             logger.error(f"Failed to load URDF: {e}")
             return False
-        
+
         # Load right robot 40cm away in X direction
         try:
             if should_suppress_output:
                 with suppress_stdout_stderr():
-                    self.robot_ids['right'] = p.loadURDF(self.urdf_path, [-0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
+                    self.robot_ids['right'] = p.loadURDF(self.urdf_path, [-0.2, 0, 0], base_orientation, useFixedBase=1)
             else:
-                self.robot_ids['right'] = p.loadURDF(self.urdf_path, [-0.2, 0, 0], [0, 0, 0, 1], useFixedBase=1)
+                self.robot_ids['right'] = p.loadURDF(self.urdf_path, [-0.2, 0, 0], base_orientation, useFixedBase=1)
         except p.error as e:
             logger.error(f"Failed to load right robot URDF: {e}")
             return False
@@ -241,7 +247,7 @@ class PyBulletVisualizer:
                 if joint_type != p.JOINT_FIXED:
                     p.setJointMotorControl2(robot_id, i, p.VELOCITY_CONTROL, force=0)
             
-            # Map to our joint indices
+            # Map to our joint indices — primary: numeric URDF names (SO100: "1"→"shoulder_pan", etc.)
             mapped_count = 0
             for urdf_name, internal_name in URDF_TO_INTERNAL_NAME_MAP.items():
                 if internal_name in JOINT_NAMES and urdf_name in p_name_to_index:
@@ -250,7 +256,16 @@ class PyBulletVisualizer:
                     mapped_count += 1
                     if getattr(logging, self.log_level.upper()) <= logging.INFO:
                         logger.info(f"  Mapped: '{internal_name}' -> '{urdf_name}' (Index {p_name_to_index[urdf_name]})")
-            
+
+            # Fallback: direct semantic name mapping (SO101 URDF already uses internal names)
+            if mapped_count < NUM_JOINTS:
+                for i, internal_name in enumerate(JOINT_NAMES):
+                    if self.joint_indices[arm_name][i] is None and internal_name in p_name_to_index:
+                        self.joint_indices[arm_name][i] = p_name_to_index[internal_name]
+                        mapped_count += 1
+                        if getattr(logging, self.log_level.upper()) <= logging.INFO:
+                            logger.info(f"  Mapped (direct): '{internal_name}' (Index {p_name_to_index[internal_name]})")
+
             if mapped_count < NUM_JOINTS:
                 missing = [name for i, name in enumerate(JOINT_NAMES) if self.joint_indices[arm_name][i] is None]
                 logger.error(f"Could not map all joints for {arm_name} robot. Missing: {missing}")
@@ -262,21 +277,25 @@ class PyBulletVisualizer:
         """Find the end effector link index for both robots."""
         success = True
         
+        # Candidate end-effector link names across supported robot models
+        end_effector_candidates = [END_EFFECTOR_LINK_NAME, "gripper_frame_link", "moving_jaw_so101_v1_link"]
+
         for arm_name, robot_id in self.robot_ids.items():
             num_joints = p.getNumJoints(robot_id)
             found = False
             for i in range(num_joints):
                 info = p.getJointInfo(robot_id, i)
                 link_name = info[12].decode('UTF-8')
-                if link_name == END_EFFECTOR_LINK_NAME:
+                if link_name in end_effector_candidates:
                     self.end_effector_link_indices[arm_name] = i
                     if getattr(logging, self.log_level.upper()) <= logging.INFO:
-                        logger.info(f"Found end effector link '{END_EFFECTOR_LINK_NAME}' for {arm_name} robot at index {i}")
+                        logger.info(f"Found end effector link '{link_name}' for {arm_name} robot at index {i}")
                     found = True
                     break
-            
+
             if not found:
-                logger.error(f"Could not find end effector link '{END_EFFECTOR_LINK_NAME}' for {arm_name} robot")
+                logger.error(f"Could not find end effector link for {arm_name} robot "
+                             f"(tried: {end_effector_candidates})")
                 success = False
         
         return success
